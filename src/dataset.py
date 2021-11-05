@@ -4,6 +4,11 @@ from torch.utils.data import TensorDataset, ConcatDataset, Dataset
 import pandas as pd
 from glob import glob
 
+import src.dataset_readers as R
+
+import hydra
+from omegaconf.dictconfig import DictConfig
+
 
 class DataframeDataset(TensorDataset):
     dataframe: pd.DataFrame
@@ -12,20 +17,24 @@ class DataframeDataset(TensorDataset):
     categorical_targets: List[str]
 
     def __init__(
-        self, dataframe, input_columns, continuous_targets, categorical_targets
+        self,
+        dataframe,
+        input_columns,
+        continuous_targets_columns,
+        categorical_targets_columns,
     ):
         self.dataframe = dataframe
         self.input_columns = input_columns
-        self.continuous_targets = continuous_targets
-        self.categorical_targets = categorical_targets
+        self.continuous_targets = continuous_targets_columns
+        self.categorical_targets = categorical_targets_columns
 
-        input_tensors = from_pandas(dataframe[input_columns])
+        input_tensors = from_pandas(dataframe[input_columns]).float()
 
-        targets = [
-            from_pandas(dataframe[columns])
-            for columns in (continuous_targets, categorical_targets)
-            if columns is not None
-        ]
+        targets = []
+        if continuous_targets_columns is not None:
+            targets.append(from_pandas(dataframe[continuous_targets_columns]).float())
+        if categorical_targets_columns is not None:
+            targets.append(from_pandas(dataframe[categorical_targets_columns]).long())
 
         super().__init__(input_tensors, *targets)
 
@@ -40,8 +49,19 @@ def read_csv_dataset(
     input_columns: List[str],
     continuous_targets: List[str],
     categorical_targets: List[str],
+    start_date=None,
+    end_date=None,
 ) -> Dataset:
-    dataframe = reader(path)
+    reader_fn = (
+        lambda df: (hydra.utils.instantiate(reader, df))
+        if isinstance(reader, DictConfig)
+        else reader
+    )
+    if start_date or end_date:
+        reader_fn = R.Compose(
+            reader_fn, R.DateRangeCut(start_date=start_date, end_date=end_date)
+        )
+    dataframe = reader_fn(path)
     return DataframeDataset(
         dataframe, input_columns, continuous_targets, categorical_targets
     )
@@ -59,16 +79,15 @@ def read_csv_datasets_from_glob(globstr: str, *args, **kwargs) -> Dataset:
     instead of `paths`.
     `globstr` is a glob pattern used to match filenames.
     """
-    paths = glob(globstr)
-    return read_csv_datasets(paths, *args, **kwargs)
+    return read_csv_datasets(glob(globstr), *args, **kwargs)
 
 
 if __name__ == "__main__":
-    from src.dataset_readers import example_features, read_yfinance_dataframe
+    from src.dataset_readers import example_features
 
-    dataset = read_csv_dataset(
-        "./data/yahoofinance_crypto/ADA-EUR.csv",
-        example_features(read_yfinance_dataframe),
+    dataset = read_csv_datasets_from_glob(
+        "./data/yahoofinance_crypto/*.csv",
+        example_features,
         input_columns=[
             "Log(PctChange(Close))",
             "Log(PctChange(Sma9(Close)))",

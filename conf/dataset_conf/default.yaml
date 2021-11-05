@@ -1,0 +1,20 @@
+data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
+input_columns:
+  - Log(PctChange(Close))
+  - Log(PctChange(Sma9(Close)))
+  - Log(PctChange(Sma12(Close)))
+  - Log(PctChange(Sma26(Close)))
+  - Log(Close - Sma9(Close))
+  - Log(Close - Sma12(Close))
+  - Log(Close - Sma26(Close))
+continuous_targets:
+  - Target
+categorical_targets:
+  - TargetCategorical
+n_classes: 3
+train_period:
+  start: 2021-08-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01

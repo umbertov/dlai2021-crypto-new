@@ -1,5 +1,3 @@
-import ta
-from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
 from typing import Optional, Tuple
@@ -12,7 +10,7 @@ from typing import Optional, Tuple
 
 
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
-    dataframe = pd.read_csv(path, parse_dates=["Date"])
+    dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
     dataframe.index = dataframe.Date
     dataframe.drop("Date", inplace=True, axis="columns")
     return dataframe
@@ -99,24 +97,51 @@ def Resample(resample_freq):
     return apply
 
 
-example_features = lambda file_reader: Compose(
-    file_reader,
-    Sma("Close", 9),
-    Sma("Close", 12),
-    Sma("Close", 26),
+DateRangeCut = DataframeTransformer(
+    lambda df, start_date, end_date: df.loc[start_date:end_date]
+)
+
+
+def get_traintest_split_readers(reader, start_date, split_date, end_date):
+    train_reader = Compose(
+        reader, DateRangeCut(start_date=start_date, end_date=split_date)
+    )
+    test_reader = Compose(
+        reader, DateRangeCut(start_date=split_date, end_date=end_date)
+    )
+    return train_reader, test_reader
+
+
+def Sma_LogPctChange_LogDiff(base_column, sma_period):
+    """
+    Adds columns:
+        - SmaN(base_column)
+        - PctChange(base_column)
+        - Log(PctChange(base_column))
+        - Log(Close - SmaN(base_column))
+    """
+    return Compose(
+        Sma(base_column, sma_period),
+        LogPctChange(f"Sma{sma_period}({base_column})"),
+        Diff(base_column, f"Sma{sma_period}({base_column})", logarithmic=True),
+    )
+
+
+example_features = Compose(
+    read_yfinance_dataframe,
     LogPctChange("Close"),
-    ##Log("PctChange(Close)"),
-    LogPctChange("Sma9(Close)"),
-    LogPctChange("Sma12(Close)"),
-    LogPctChange("Sma26(Close)"),
-    Diff("Close", "Sma9(Close)", logarithmic=True),
-    Diff("Close", "Sma12(Close)", logarithmic=True),
-    Diff("Close", "Sma26(Close)", logarithmic=True),
-    Shift("PctChange(Close)", target_column="Target"),
-    Bins(
-        "PctChange(Close)",
-        bins=[0.0, 0.999, 1.001, float("inf")],
-    ),
-    BinCodes("Bins(PctChange(Close))", target_column="TargetCategorical"),
+    Sma_LogPctChange_LogDiff("Close", 9),
+    Sma_LogPctChange_LogDiff("Close", 12),
+    Sma_LogPctChange_LogDiff("Close", 26),
+    # continuous target declaration
+    Shift("Log(PctChange(Close))", target_column="Target"),
+    # categorical target declaration
+    Shift("PctChange(Close)"),
     Strip(),
+    Bins(
+        "Shift(PctChange(Close))",
+        bins=[0.0, 0.999, 1.001, float("inf")],
+        target_column="Shift(ChangeCategorical)",
+    ),
+    BinCodes("Shift(ChangeCategorical)", target_column="TargetCategorical"),
 )

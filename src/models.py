@@ -31,15 +31,15 @@ class AutoEncoder(nn.Module):
         # list of tuples of adjacent layer sizes
         projection_sizes = list(zip([in_size] + hidden_sizes, hidden_sizes))
 
-        self.encoder = nn.ModuleList(
-            [
+        self.encoder = nn.Sequential(
+            *[
                 NonLinear(s1, s2, activation=self.activation)
                 for (s1, s2) in projection_sizes
             ]
         )
 
-        self.decoder = nn.ModuleList(
-            [
+        self.decoder = nn.Sequential(
+            *[
                 NonLinear(s2, s1, activation=self.activation)
                 for (s1, s2) in reversed(projection_sizes)
             ]
@@ -47,7 +47,7 @@ class AutoEncoder(nn.Module):
 
     def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
         encoded = self.encoder(x)
-        reconstruction = self.decoder(x)
+        reconstruction = self.decoder(encoded)
         return encoded, reconstruction
 
 

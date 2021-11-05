@@ -8,8 +8,10 @@ import pytorch_lightning as pl
 from einops import rearrange
 
 from src.models import ClassifierWithAutoEncoder
+from src.common.utils import PROJECT_ROOT
 
 import hydra
+import omegaconf
 
 
 class AutoEncoderModel(pl.LightningModule):
@@ -21,34 +23,47 @@ class AutoEncoderModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
 
-        self.model = hydra.utils.instantiate(self.hparams.model, recursive=True)
+        self.model = hydra.utils.instantiate(
+            self.hparams.model, _recursive_=True, _convert_="partial"
+        )
 
         self.classification_loss_fn = hydra.utils.instantiate(
             self.hparams.classification_loss_fn
         )
         self.reconstruction_loss_fn = hydra.utils.instantiate(
-            self.hparams.classification_loss_fn
+            self.hparams.reconstruction_loss_fn
         )
 
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor = None):
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        continuous_targets: torch.Tensor = None,
+        categorical_targets: torch.Tensor = None,
+    ):
         prediction_logits, reconstruction = self.model(inputs)
 
-        if targets is not None:
-            return {"logits": prediction_logits}
-
-        reconstruction_loss = self.reconstruction_loss_fn(
-            reconstruction.view(-1), inputs.view(-1)
-        )
-        classification_loss = self.classification_loss_fn(
-            prediction_logits, targets.view(-1)
-        )
-
-        return {
-            "clf_loss": classification_loss,
-            "rec_loss": reconstruction_loss,
+        out = {
             "logits": prediction_logits,
-            "targets": targets,
+            "reconstruction": reconstruction,
         }
+
+        if continuous_targets is not None:
+            reconstruction_loss = self.reconstruction_loss_fn(
+                reconstruction.view(-1), inputs.view(-1)
+            )
+            out["rec_loss"] = reconstruction_loss
+            out["continuous_targets"] = continuous_targets
+            out["loss"] = reconstruction_loss
+
+        if categorical_targets is not None:
+            classification_loss = self.classification_loss_fn(
+                prediction_logits, categorical_targets.view(-1)
+            )
+            out["clf_loss"] = classification_loss
+            out["categorical_targets"] = categorical_targets
+            out["loss"] = out.get("rec_loss", 0) + classification_loss
+
+        return out
 
     def training_step(self, batch, batch_idx):
         step_result = self.forward(*batch)
@@ -56,7 +71,7 @@ class AutoEncoderModel(pl.LightningModule):
             {
                 "train/clf_loss": step_result["clf_loss"],
                 "train/rec_loss": step_result["rec_loss"],
-                "loss": step_result["rec_loss"] + step_result["clf_loss"],
+                "train/loss": step_result["loss"],
             },
             on_step=False,
             on_epoch=True,
@@ -70,7 +85,7 @@ class AutoEncoderModel(pl.LightningModule):
             {
                 "val/clf_loss": step_result["clf_loss"],
                 "val/rec_loss": step_result["rec_loss"],
-                "loss": step_result["rec_loss"] + step_result["clf_loss"],
+                "val/loss": step_result["loss"],
             },
             on_step=False,
             on_epoch=True,
@@ -103,3 +118,19 @@ class AutoEncoderModel(pl.LightningModule):
             self.hparams.optim.lr_scheduler, optimizer=opt
         )
         return [opt], [scheduler]
+
+
+@hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
+def main(cfg: omegaconf.DictConfig):
+    global model
+    model = hydra.utils.instantiate(
+        cfg.model,
+        optim=cfg.optim,
+        # logging=cfg.logging,
+        _recursive_=False,
+    )
+
+
+if __name__ == "__main__":
+    model = None
+    main()

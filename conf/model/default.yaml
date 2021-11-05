@@ -1,0 +1,14 @@
+_target_: src.lit_models.AutoEncoderModel
+model:
+  _target_: src.models.ClassifierWithAutoEncoder
+  n_classes: ${dataset_conf.n_classes}
+  autoencoder:
+    _target_: src.models.AutoEncoder
+    in_size: ${length:${dataset_conf.input_columns}}
+    hidden_sizes: [200,100,50]
+    activation:
+      _target_: torch.nn.Tanh
+classification_loss_fn:
+  _target_: torch.nn.CrossEntropyLoss
+reconstruction_loss_fn:
+  _target_: torch.nn.MSELoss
