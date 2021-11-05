@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from nn import functional as F
+from torch.nn import functional as F
 
 
 def NonLinear(

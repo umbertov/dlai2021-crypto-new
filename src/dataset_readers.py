@@ -5,6 +5,12 @@ import numpy as np
 from typing import Optional, Tuple
 
 
+# library of functions that pre-process the raw time series and compute features.
+# this would look nicer if python had (un/)currying
+
+# it all boils down to being able to write pre-processing as a chain of basic modules
+
+
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
     dataframe = pd.read_csv(path, parse_dates=["Date"])
     dataframe.index = dataframe.Date
@@ -16,16 +22,22 @@ def ColumnTrasnformer(function, name=None):
     if name is None:
         name = function.__name__
 
-    def Transformation(input_column):
-        target_column = f"{name}({input_column})"
+    def Transformation(input_column, target_column=None, **additional_args):
+        target_column = target_column or f"{name}({input_column})"
 
         def apply(dataframe):
-            dataframe[target_column] = function(dataframe[input_column])
+            dataframe[target_column] = function(
+                dataframe[input_column], **additional_args
+            )
             return dataframe
 
         return apply
 
     return Transformation
+
+
+def DataframeTransformer(function, **f_kwargs):
+    return lambda *args, **kwargs: lambda df: function(df, *args, **f_kwargs, **kwargs)
 
 
 def Compose(*transformations):
@@ -44,12 +56,22 @@ def remove_leading_trailing_nans(df: pd.DataFrame) -> pd.DataFrame:
 
 
 Log = ColumnTrasnformer(np.log, name="Log")
-PctChange = ColumnTrasnformer(lambda df: df.pct_change() + 1, name="PctChange")
+PctChange = ColumnTrasnformer(lambda col: col.pct_change() + 1, name="PctChange")
+Shift = ColumnTrasnformer(lambda col: col.shift(-1), name="Shift")
 LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
+Sma = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
+    col
+)
+Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
+BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
+
+Strip = DataframeTransformer(remove_leading_trailing_nans)
 
 
 def Diff(col1, col2, logarithmic=False):
     target_column = f"({col1} - {col2})"
+    if logarithmic:
+        target_column = f"Log{target_column}"
 
     def apply(dataframe):
         dataframe[target_column] = dataframe[col1] - dataframe[col2]
@@ -60,33 +82,6 @@ def Diff(col1, col2, logarithmic=False):
         return dataframe
 
     return apply
-
-
-def Sma(n, colname):
-    return ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(colname)
-
-
-def DataframeTransformer(function, **f_kwargs):
-    return lambda *args, **kwargs: lambda df: function(df, *args, **f_kwargs, **kwargs)
-
-
-Strip = DataframeTransformer(remove_leading_trailing_nans)
-
-
-features = lambda file_reader: Compose(
-    file_reader,
-    Sma(9, "Close"),
-    Sma(12, "Close"),
-    Sma(26, "Close"),
-    LogPctChange("Close"),
-    ##Log("PctChange(Close)"),
-    LogPctChange("Sma9(Close)"),
-    LogPctChange("Sma12(Close)"),
-    LogPctChange("Sma26(Close)"),
-    Diff("Close", "Sma9(Close)", logarithmic=True),
-    Diff("Close", "Sma12(Close)", logarithmic=True),
-    Diff("Close", "Sma26(Close)", logarithmic=True),
-)
 
 
 def Resample(resample_freq):
@@ -102,3 +97,26 @@ def Resample(resample_freq):
         )
 
     return apply
+
+
+example_features = lambda file_reader: Compose(
+    file_reader,
+    Sma("Close", 9),
+    Sma("Close", 12),
+    Sma("Close", 26),
+    LogPctChange("Close"),
+    ##Log("PctChange(Close)"),
+    LogPctChange("Sma9(Close)"),
+    LogPctChange("Sma12(Close)"),
+    LogPctChange("Sma26(Close)"),
+    Diff("Close", "Sma9(Close)", logarithmic=True),
+    Diff("Close", "Sma12(Close)", logarithmic=True),
+    Diff("Close", "Sma26(Close)", logarithmic=True),
+    Shift("PctChange(Close)", target_column="Target"),
+    Bins(
+        "PctChange(Close)",
+        bins=[0.0, 0.999, 1.001, float("inf")],
+    ),
+    BinCodes("Bins(PctChange(Close))", target_column="TargetCategorical"),
+    Strip(),
+)

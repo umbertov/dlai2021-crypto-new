@@ -8,16 +8,26 @@ from glob import glob
 class DataframeDataset(TensorDataset):
     dataframe: pd.DataFrame
     input_columns: List[str]
-    target_columns: List[str]
+    continuous_targets: List[str]
+    categorical_targets: List[str]
 
-    def __init__(self, dataframe, input_columns, target_columns):
+    def __init__(
+        self, dataframe, input_columns, continuous_targets, categorical_targets
+    ):
         self.dataframe = dataframe
         self.input_columns = input_columns
-        self.target_columns = target_columns
+        self.continuous_targets = continuous_targets
+        self.categorical_targets = categorical_targets
 
         input_tensors = from_pandas(dataframe[input_columns])
-        target_tensors = from_pandas(dataframe[target_columns])
-        super().__init__(input_tensors, target_tensors)
+
+        targets = [
+            from_pandas(dataframe[columns])
+            for columns in (continuous_targets, categorical_targets)
+            if columns is not None
+        ]
+
+        super().__init__(input_tensors, *targets)
 
 
 def from_pandas(df: pd.DataFrame) -> torch.Tensor:
@@ -28,10 +38,13 @@ def read_csv_dataset(
     path: str,
     reader: Callable[[str], pd.DataFrame],
     input_columns: List[str],
-    target_columns: List[str],
+    continuous_targets: List[str],
+    categorical_targets: List[str],
 ) -> Dataset:
     dataframe = reader(path)
-    return DataframeDataset(dataframe, input_columns, target_columns)
+    return DataframeDataset(
+        dataframe, input_columns, continuous_targets, categorical_targets
+    )
 
 
 def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
@@ -51,9 +64,22 @@ def read_csv_datasets_from_glob(globstr: str, *args, **kwargs) -> Dataset:
 
 
 if __name__ == "__main__":
+    from src.dataset_readers import example_features, read_yfinance_dataframe
+
     dataset = read_csv_dataset(
         "./data/yahoofinance_crypto/ADA-EUR.csv",
-        pd.read_csv,
-        ["Open", "Close"],
-        ["High"],
+        example_features(read_yfinance_dataframe),
+        input_columns=[
+            "Log(PctChange(Close))",
+            "Log(PctChange(Sma9(Close)))",
+            "Log(PctChange(Sma12(Close)))",
+            "Log(PctChange(Sma26(Close)))",
+            "Log(Close - Sma9(Close))",
+            "Log(Close - Sma12(Close))",
+            "Log(Close - Sma26(Close))",
+        ],
+        continuous_targets=[
+            "Target",
+        ],
+        categorical_targets=["TargetCategorical"],
     )

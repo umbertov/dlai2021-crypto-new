@@ -2,7 +2,7 @@ from typing import Union, Sequence, Any, Tuple
 from torch.optim import Optimizer
 import torch
 from torch import nn
-from nn import functional as F
+from torch.nn import functional as F
 
 import pytorch_lightning as pl
 from einops import rearrange
@@ -56,6 +56,7 @@ class AutoEncoderModel(pl.LightningModule):
             {
                 "train/clf_loss": step_result["clf_loss"],
                 "train/rec_loss": step_result["rec_loss"],
+                "loss": step_result["rec_loss"] + step_result["clf_loss"],
             },
             on_step=False,
             on_epoch=True,
@@ -69,6 +70,7 @@ class AutoEncoderModel(pl.LightningModule):
             {
                 "val/clf_loss": step_result["clf_loss"],
                 "val/rec_loss": step_result["rec_loss"],
+                "loss": step_result["rec_loss"] + step_result["clf_loss"],
             },
             on_step=False,
             on_epoch=True,
