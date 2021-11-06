@@ -6,7 +6,7 @@ datamodule:
       _target_: src.dataset.read_csv_datasets_from_glob
       globstr: ${dataset_conf.data_path}
       reader:
-        _target_: src.dataset_readers.example_features
+        _target_: src.dataset_readers.example_reader
       input_columns: ${dataset_conf.input_columns}
       continuous_targets: ${dataset_conf.continuous_targets}
       categorical_targets: ${dataset_conf.categorical_targets}
@@ -17,7 +17,7 @@ datamodule:
       - _target_: src.dataset.read_csv_datasets_from_glob
         globstr: ${dataset_conf.data_path}
         reader:
-          _target_: src.dataset_readers.example_features
+          _target_: src.dataset_readers.example_reader
         input_columns: ${dataset_conf.input_columns}
         continuous_targets: ${dataset_conf.continuous_targets}
         categorical_targets: ${dataset_conf.categorical_targets}

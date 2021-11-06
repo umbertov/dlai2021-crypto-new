@@ -1,12 +1,22 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
 input_columns:
-  - Log(PctChange(Close))
-  - Log(PctChange(Sma9(Close)))
-  - Log(PctChange(Sma12(Close)))
-  - Log(PctChange(Sma26(Close)))
-  - Log(Close - Sma9(Close))
-  - Log(Close - Sma12(Close))
-  - Log(Close - Sma26(Close))
+  - Log(PctChange(Open_1h))
+  - Log(PctChange(Sma9(Open_1h)))
+  - Log(PctChange(Sma12(Open_1h)))
+  - Log(PctChange(Sma26(Open_1h)))
+  - Log(Open_1h - Sma9(Open_1h))
+  - Log(Open_1h - Sma12(Open_1h))
+  - Log(Open_1h - Sma26(Open_1h))
+  - Log(Open - Sma9(Open_1h))
+  - Log(Open - Sma12(Open_1h))
+  - Log(Open - Sma26(Open_1h))
+  - Log(PctChange(Open))
+  - Log(PctChange(Sma9(Open)))
+  - Log(PctChange(Sma12(Open)))
+  - Log(PctChange(Sma26(Open)))
+  - Log(Open - Sma9(Open))
+  - Log(Open - Sma12(Open))
+  - Log(Open - Sma26(Open))
 continuous_targets:
   - Target
 categorical_targets:

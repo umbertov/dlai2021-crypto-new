@@ -82,19 +82,19 @@ def Diff(col1, col2, logarithmic=False):
     return apply
 
 
-def Resample(resample_freq):
-    def apply(df):
-        return df.resample(resample_freq).agg(
-            {
-                "Open": "first",
-                "High": "max",
-                "Low": "min",
-                "Close": "last",
-                "Volume": "sum",
-            }
-        )
+def resample_ohlcv(df: pd.DataFrame, resample_freq: str) -> pd.DataFrame:
+    return df.resample(resample_freq).agg(  # type: ignore
+        {
+            "Open": "first",
+            "High": "max",
+            "Low": "min",
+            "Close": "last",
+            "Volume": "sum",
+        }
+    )
 
-    return apply
+
+Resample = lambda resample_freq: lambda df: resample_ohlcv(df, resample_freq)
 
 
 DateRangeCut = DataframeTransformer(
@@ -127,21 +127,61 @@ def Sma_LogPctChange_LogDiff(base_column, sma_period):
     )
 
 
-example_features = Compose(
-    read_yfinance_dataframe,
-    LogPctChange("Close"),
-    Sma_LogPctChange_LogDiff("Close", 9),
-    Sma_LogPctChange_LogDiff("Close", 12),
-    Sma_LogPctChange_LogDiff("Close", 26),
+def ResampleThenJoin(resample_freq, continuation, suffix=None):
+    suffix = suffix or f"_{resample_freq}"
+
+    def apply(df):
+        df = df.copy()
+        # first, resample ohlcv data to desired frequency
+        resampled = resample_ohlcv(df, resample_freq)
+        # add suffix to columns to avoid naming conflicts when re-joining
+        resampled = resampled.rename(columns=lambda colname: f"{colname}{suffix}")
+        # apply some processing to resampled dataframe
+        resampled = continuation(resampled)
+        # we obtain the originary timeframe by looking at the TimeDelta between rows
+        original_tf = df.index[1] - df.index[0]
+        # resample dataframe back to the originary timeframe, forward-filling information
+        # from the higher timeframe
+        resampled = resampled.resample(original_tf).ffill()
+        # join the old columns with the newly created ones
+        joined = df.join(resampled)
+        return joined
+
+    return apply
+
+
+features = lambda column: Compose(
+    ResampleThenJoin(
+        "1h",
+        Compose(
+            LogPctChange(f"{column}_1h"),
+            Sma_LogPctChange_LogDiff(f"{column}_1h", 9),
+            Sma_LogPctChange_LogDiff(f"{column}_1h", 12),
+            Sma_LogPctChange_LogDiff(f"{column}_1h", 26),
+        ),
+    ),
+    Diff(column, f"Sma9({column}_1h)", logarithmic=True),
+    Diff(column, f"Sma12({column}_1h)", logarithmic=True),
+    Diff(column, f"Sma26({column}_1h)", logarithmic=True),
+    # features computation
+    LogPctChange(f"{column}"),
+    Sma_LogPctChange_LogDiff(f"{column}", 9),
+    Sma_LogPctChange_LogDiff(f"{column}", 12),
+    Sma_LogPctChange_LogDiff(f"{column}", 26),
+    ######
+    #####  TARGETS
+    ######
     # continuous target declaration
-    Shift("Log(PctChange(Close))", target_column="Target"),
+    Shift(f"Log(PctChange({column}))", target_column="Target"),
     # categorical target declaration
-    Shift("PctChange(Close)"),
+    Shift(f"PctChange({column})"),
     Strip(),
     Bins(
-        "Shift(PctChange(Close))",
+        f"Shift(PctChange({column}))",
         bins=[0.0, 0.999, 1.001, float("inf")],
         target_column="Shift(ChangeCategorical)",
     ),
     BinCodes("Shift(ChangeCategorical)", target_column="TargetCategorical"),
 )
+
+example_reader = Compose(read_yfinance_dataframe, features("Open"))
