@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 
 import pytorch_lightning as pl
+import torchmetrics.functional as M
 from einops import rearrange
 
 from src.models import ClassifierWithAutoEncoder
@@ -12,6 +13,15 @@ from src.common.utils import PROJECT_ROOT
 
 import hydra
 import omegaconf
+
+
+def compute_accuracy(logits, targets):
+    return M.accuracy(
+        F.softmax(logits, dim=-1),
+        targets,
+        average="weighted",
+        num_classes=3,
+    )
 
 
 class AutoEncoderModel(pl.LightningModule):
@@ -62,6 +72,7 @@ class AutoEncoderModel(pl.LightningModule):
             out["clf_loss"] = classification_loss
             out["categorical_targets"] = categorical_targets
             out["loss"] = out.get("rec_loss", 0) + classification_loss
+            out["accuracy"] = compute_accuracy(prediction_logits, categorical_targets)
 
         return out
 
@@ -72,6 +83,7 @@ class AutoEncoderModel(pl.LightningModule):
                 "train/clf_loss": step_result["clf_loss"],
                 "train/rec_loss": step_result["rec_loss"],
                 "train/loss": step_result["loss"],
+                "train/accuracy": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,
@@ -86,6 +98,7 @@ class AutoEncoderModel(pl.LightningModule):
                 "val/clf_loss": step_result["clf_loss"],
                 "val/rec_loss": step_result["rec_loss"],
                 "val/loss": step_result["loss"],
+                "val/accuracy": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,
