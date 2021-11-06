@@ -20,8 +20,12 @@ def ColumnTrasnformer(function, name=None):
     if name is None:
         name = function.__name__
 
-    def Transformation(input_column, target_column=None, **additional_args):
+    def Transformation(
+        input_column, target_column=None, is_input_feature=False, **additional_args
+    ):
         target_column = target_column or f"{name}({input_column})"
+        if is_input_feature:
+            target_column = f"Feature{target_column}"
 
         def apply(dataframe):
             dataframe[target_column] = function(
@@ -150,24 +154,39 @@ def ResampleThenJoin(resample_freq, continuation, suffix=None):
     return apply
 
 
+def AddShiftedColumns(shift_amt: int, columns: list[str]):
+    def f(df):
+        for col in columns:
+            df[f"Shift{shift_amt}({col})"] = df[col].shift(shift_amt)
+        return df
+
+    return f
+
+
+def AddSmas(colname, sma_lengths: list[int]):
+    return Compose(
+        *[Sma_LogPctChange_LogDiff(colname, sma_len) for sma_len in sma_lengths]
+    )
+
+
 features = lambda column: Compose(
     ResampleThenJoin(
         "1h",
         Compose(
             LogPctChange(f"{column}_1h"),
-            Sma_LogPctChange_LogDiff(f"{column}_1h", 9),
-            Sma_LogPctChange_LogDiff(f"{column}_1h", 12),
-            Sma_LogPctChange_LogDiff(f"{column}_1h", 26),
+            AddShiftedColumns(1, [f"{column}_1h"]),
+            AddSmas(f"{column}_1h", [9, 12, 26]),
+            AddSmas(f"Shift1({column}_1h)", [9, 12, 26]),
         ),
     ),
     Diff(column, f"Sma9({column}_1h)", logarithmic=True),
     Diff(column, f"Sma12({column}_1h)", logarithmic=True),
     Diff(column, f"Sma26({column}_1h)", logarithmic=True),
     # features computation
+    # logarithmic pct change from last row
     LogPctChange(f"{column}"),
-    Sma_LogPctChange_LogDiff(f"{column}", 9),
-    Sma_LogPctChange_LogDiff(f"{column}", 12),
-    Sma_LogPctChange_LogDiff(f"{column}", 26),
+    # simple moving averages + logdiff betweek column and sma + log pct change in sma
+    AddSmas(f"{column}", [9, 12, 26]),
     ######
     #####  TARGETS
     ######
