@@ -1,0 +1,11 @@
+torch
+pandas
+numpy
+yfinance
+python-dotenv
+matplotlib
+plotly
+hydra-core
+wandb
+pytorch-lightning
+torchmetrics
