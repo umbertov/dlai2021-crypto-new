@@ -5,7 +5,7 @@ model:
   autoencoder:
     _target_: src.models.AutoEncoder
     in_size: ${length:${dataset_conf.input_columns}}
-    hidden_sizes: [200,100,50]
+    hidden_sizes: [20,10,5]
     activation:
       _target_: torch.nn.Tanh
 classification_loss_fn:
