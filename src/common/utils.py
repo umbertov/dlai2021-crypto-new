@@ -8,6 +8,7 @@ import pytorch_lightning as pl
 import torch
 import pytorch_lightning as pl
 from omegaconf import DictConfig, OmegaConf
+from hydra import compose, initialize
 
 
 def register_custom_resolvers():
@@ -18,6 +19,14 @@ def register_custom_resolvers():
 
 
 register_custom_resolvers()
+
+
+def get_hydra_cfg(config_path=None, overrides=[]):
+    if config_path is None:
+        config_path = str(PROJECT_ROOT / "conf")
+    with initialize(config_path=config_path):
+        cfg = compose(config_name="default", overrides=overrides)
+        return cfg
 
 
 def get_env(env_name: str, default: Optional[str] = None) -> str:
