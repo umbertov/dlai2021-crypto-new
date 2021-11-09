@@ -68,7 +68,10 @@ def read_csv_dataset(
         reader_fn = R.Compose(
             reader_fn, R.DateRangeCut(start_date=start_date, end_date=end_date)
         )
-    dataframe = reader_fn(path.absolute())
+    try:
+        dataframe = reader_fn(path.absolute())
+    except TypeError:
+        return None
     return DataframeDataset(
         dataframe,
         input_columns,
@@ -84,8 +87,12 @@ def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
     """
     return ConcatDataset(
         [
-            read_csv_dataset(path, *args, **kwargs)
-            for path in tqdm(paths, total=len(paths))
+            i
+            for i in [
+                read_csv_dataset(path, *args, **kwargs) or None
+                for path in tqdm(paths, total=len(paths))
+            ]
+            if i is not None
         ]
     )
 

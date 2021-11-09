@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from typing import Optional, Tuple
 
+DEBUG = True
+
 
 # library of functions that pre-process the raw time series and compute features.
 # this would look nicer if python had (un/)currying
@@ -86,6 +88,9 @@ def Diff(col1, col2, logarithmic=False):
     return apply
 
 
+LogDiff = lambda col1, col2: Diff(col1, col2, logarithmic=True)
+
+
 def resample_ohlcv(df: pd.DataFrame, resample_freq: str) -> pd.DataFrame:
     return df.resample(resample_freq).agg(  # type: ignore
         {
@@ -102,7 +107,9 @@ Resample = lambda resample_freq: lambda df: resample_ohlcv(df, resample_freq)
 
 
 DateRangeCut = DataframeTransformer(
-    lambda df, start_date, end_date: df.loc[start_date:end_date]
+    lambda df, start_date, end_date: remove_leading_trailing_nans(
+        df.loc[start_date:end_date]
+    )
 )
 
 
@@ -127,7 +134,7 @@ def Sma_LogPctChange_LogDiff(base_column, sma_period):
     return Compose(
         Sma(base_column, sma_period),
         LogPctChange(f"Sma{sma_period}({base_column})"),
-        Diff(base_column, f"Sma{sma_period}({base_column})", logarithmic=True),
+        LogDiff(base_column, f"Sma{sma_period}({base_column})"),
     )
 
 
@@ -137,7 +144,9 @@ def ResampleThenJoin(resample_freq, continuation, suffix=None):
     def apply(df):
         df = df.copy()
         # first, resample ohlcv data to desired frequency
-        resampled = resample_ohlcv(df, resample_freq)
+        resampled = remove_leading_trailing_nans(
+            resample_ohlcv(df, resample_freq).ffill()
+        )
         # add suffix to columns to avoid naming conflicts when re-joining
         resampled = resampled.rename(columns=lambda colname: f"{colname}{suffix}")
         # apply some processing to resampled dataframe
@@ -149,9 +158,24 @@ def ResampleThenJoin(resample_freq, continuation, suffix=None):
         resampled = resampled.resample(original_tf).ffill()
         # join the old columns with the newly created ones
         joined = df.join(resampled)
-        return joined
+        return remove_leading_trailing_nans(joined)
 
     return apply
+
+
+def DebugIfNan():
+    if not DEBUG:
+        return lambda x: x
+
+    def f(df):
+        if df.isna().any().any():
+
+            import ipdb
+
+            ipdb.set_trace()
+        return df
+
+    return f
 
 
 def AddShiftedColumns(shift_amt: int, columns: list[str]):
@@ -177,11 +201,13 @@ features = lambda column: Compose(
             AddShiftedColumns(1, [f"{column}_1h"]),
             AddSmas(f"{column}_1h", [9, 12, 26]),
             AddSmas(f"Shift1({column}_1h)", [9, 12, 26]),
+            Strip(),
+            DebugIfNan(),
         ),
     ),
-    Diff(column, f"Sma9({column}_1h)", logarithmic=True),
-    Diff(column, f"Sma12({column}_1h)", logarithmic=True),
-    Diff(column, f"Sma26({column}_1h)", logarithmic=True),
+    LogDiff(column, f"Sma9({column}_1h)"),
+    LogDiff(column, f"Sma12({column}_1h)"),
+    LogDiff(column, f"Sma26({column}_1h)"),
     # features computation
     # logarithmic pct change from last row
     LogPctChange(f"{column}"),
@@ -195,6 +221,7 @@ features = lambda column: Compose(
     # categorical target declaration
     Shift(f"PctChange({column})"),
     Strip(),
+    DebugIfNan(),
     Bins(
         f"Shift(PctChange({column}))",
         bins=[0.0, 0.999, 1.001, float("inf")],
