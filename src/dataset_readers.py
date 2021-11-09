@@ -66,6 +66,7 @@ LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
 Sma = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
     col
 )
+RollingSum = ColumnTrasnformer(lambda col, window: col.rolling(window).sum())
 Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
 BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 
@@ -123,21 +124,6 @@ def get_traintest_split_readers(reader, start_date, split_date, end_date):
     return train_reader, test_reader
 
 
-def Sma_LogPctChange_LogDiff(base_column, sma_period):
-    """
-    Adds columns:
-        - SmaN(base_column)
-        - PctChange(base_column)
-        - Log(PctChange(base_column))
-        - Log(Close - SmaN(base_column))
-    """
-    return Compose(
-        Sma(base_column, sma_period),
-        LogPctChange(f"Sma{sma_period}({base_column})"),
-        LogDiff(base_column, f"Sma{sma_period}({base_column})"),
-    )
-
-
 def ResampleThenJoin(resample_freq, continuation, suffix=None):
     suffix = suffix or f"_{resample_freq}"
 
@@ -187,20 +173,60 @@ def AddShiftedColumns(shift_amt: int, columns: list[str]):
     return f
 
 
-def AddSmas(colname, sma_lengths: list[int]):
+def Sma_LogPctChange_LogDiff(base_column, sma_period):
+    """
+    Adds columns:
+        - SmaN(base_column)
+        - PctChange(base_column)
+        - Log(PctChange(base_column))
+        - Log(Close - SmaN(base_column))
+    """
+    return Compose(
+        Sma(base_column, sma_period),
+        LogPctChange(f"Sma{sma_period}({base_column})"),
+        LogDiff(base_column, f"Sma{sma_period}({base_column})"),
+    )
+
+
+def Multi_Sma_LogPctChange_LogDiff(colname, sma_lengths: list[int]):
     return Compose(
         *[Sma_LogPctChange_LogDiff(colname, sma_len) for sma_len in sma_lengths]
     )
 
 
 features = lambda column: Compose(
+    ######## FEATURES
+    ### features from default timeframe (5min)
+    # logarithmic pct change from last row
+    LogPctChange(f"{column}"),
+    # simple moving averages + logdiff betweek column and sma + log pct change in sma
+    Multi_Sma_LogPctChange_LogDiff(column, [9, 12, 26]),
+    # hourly log-pct change (5min * 12 = 60min)
+    RollingSum(
+        f"Log(PctChange({column}))",
+        window=12,
+        target_column=f"LogCumReturn12({column})",
+    ),
+    # 4-hourly log-pct change (5min*48 = 4h)
+    RollingSum(
+        f"Log(PctChange({column}))",
+        window=48,
+        target_column=f"LogCumReturn48({column})",
+    ),
+    # 24-hourly log-pct change (5min*288 = 24h)
+    RollingSum(
+        f"Log(PctChange({column}))",
+        window=288,
+        target_column=f"LogCumReturn288({column})",
+    ),
+    ### Features from another timeframe
+    ### (1h timeframe)
     ResampleThenJoin(
         "1h",
         Compose(
             LogPctChange(f"{column}_1h"),
             AddShiftedColumns(1, [f"{column}_1h"]),
-            AddSmas(f"{column}_1h", [9, 12, 26]),
-            AddSmas(f"Shift1({column}_1h)", [9, 12, 26]),
+            Multi_Sma_LogPctChange_LogDiff(f"{column}_1h", [9, 12, 26]),
             Strip(),
             DebugIfNan(),
         ),
@@ -208,11 +234,6 @@ features = lambda column: Compose(
     LogDiff(column, f"Sma9({column}_1h)"),
     LogDiff(column, f"Sma12({column}_1h)"),
     LogDiff(column, f"Sma26({column}_1h)"),
-    # features computation
-    # logarithmic pct change from last row
-    LogPctChange(f"{column}"),
-    # simple moving averages + logdiff betweek column and sma + log pct change in sma
-    AddSmas(f"{column}", [9, 12, 26]),
     ######
     #####  TARGETS
     ######
