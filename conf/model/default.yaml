@@ -12,3 +12,5 @@ classification_loss_fn:
   _target_: torch.nn.CrossEntropyLoss
 reconstruction_loss_fn:
   _target_: torch.nn.MSELoss
+reconstruction_loss_weight:
+  1

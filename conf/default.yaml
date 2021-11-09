@@ -12,5 +12,7 @@ defaults:
   - model: default
   - optim: default
   - train: default
+  #### KEEP THIS AS THE LAST
+  - experiment: default
 #    Decomment this parameter to get parallel job running
 #  - hydra/launcher: joblib

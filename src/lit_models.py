@@ -58,8 +58,9 @@ class AutoEncoderModel(pl.LightningModule):
         }
 
         if continuous_targets is not None:
-            reconstruction_loss = self.reconstruction_loss_fn(
-                reconstruction.view(-1), inputs.view(-1)
+            reconstruction_loss = (
+                self.hparams.reconstruction_loss_weight  # type: ignore
+                * self.reconstruction_loss_fn(reconstruction.view(-1), inputs.view(-1))
             )
             out["rec_loss"] = reconstruction_loss
             out["continuous_targets"] = continuous_targets
