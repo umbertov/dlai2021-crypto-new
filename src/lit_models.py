@@ -3,10 +3,14 @@ from torch.optim import Optimizer
 import torch
 from torch import nn
 from torch.nn import functional as F
+import wandb
 
 import pytorch_lightning as pl
 import torchmetrics.functional as M
+from torchmetrics.classification.confusion_matrix import ConfusionMatrix
 from einops import rearrange
+from common.plot_utils import confusion_matrix_fig
+from src.common.plot_utils import confusion_matrix_table
 
 from src.models import ClassifierWithAutoEncoder
 from src.common.utils import PROJECT_ROOT
@@ -20,6 +24,15 @@ def compute_accuracy(logits, targets):
         F.softmax(logits, dim=-1),
         targets,
         average="weighted",
+        num_classes=3,
+    )
+
+
+def compute_confusion_matrix(logits, targets):
+    return M.confusion_matrix(
+        F.softmax(logits.detach(), dim=-1),
+        targets.detach(),
+        normalize="true",  # normalize over targets ('true') or predictions ('pred')
         num_classes=3,
     )
 
@@ -38,7 +51,8 @@ class MLPClassifierModel(pl.LightningModule):
         )
 
         self.classification_loss_fn = hydra.utils.instantiate(
-            self.hparams.classification_loss_fn
+            self.hparams.classification_loss_fn,
+            _recursive_=True,
         )
 
     def forward(
@@ -50,6 +64,7 @@ class MLPClassifierModel(pl.LightningModule):
         prediction_logits = self.model(inputs)
 
         out = {
+            "logits": prediction_logits,
             "logits": prediction_logits,
         }
 
@@ -92,6 +107,42 @@ class MLPClassifierModel(pl.LightningModule):
         )
         return step_result
 
+    def training_epoch_end(self, step_outputs):
+        # Log confusion matrix for the training data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat([step["logits"] for step in step_outputs], dim=0),
+                torch.cat(
+                    [step["categorical_targets"] for step in step_outputs], dim=0
+                ),
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(self.hparams.model.n_classes)),
+        )
+        self.logger.experiment.log({"train/confusion_matrix": plot})
+
+    def validation_epoch_end(self, step_outputs):
+        # Log confusion matrix for the validation data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat([step["logits"] for step in step_outputs], dim=0),
+                torch.cat(
+                    [step["categorical_targets"] for step in step_outputs], dim=0
+                ),
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(self.hparams.model.n_classes)),
+        )
+        self.logger.experiment.log({"val/confusion_matrix": plot})
+
     def configure_optimizers(
         self,
     ) -> Union[Optimizer, Tuple[Sequence[Optimizer], Sequence[Any]]]:
@@ -124,7 +175,8 @@ class AutoEncoderModel(pl.LightningModule):
             self.hparams.classification_loss_fn
         )
         self.reconstruction_loss_fn = hydra.utils.instantiate(
-            self.hparams.reconstruction_loss_fn
+            self.hparams.classification_loss_fn,
+            _recursive_=True,
         )
 
     def forward(
@@ -215,6 +267,42 @@ class AutoEncoderModel(pl.LightningModule):
             self.hparams.optim.lr_scheduler, optimizer=opt
         )
         return [opt], [scheduler]
+
+    def training_epoch_end(self, step_outputs):
+        # Log confusion matrix for the training data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat([step["logits"] for step in step_outputs], dim=0),
+                torch.cat(
+                    [step["categorical_targets"] for step in step_outputs], dim=0
+                ),
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(self.hparams.model.n_classes)),
+        )
+        self.logger.experiment.log({"train/confusion_matrix": plot})
+
+    def validation_epoch_end(self, step_outputs):
+        # Log confusion matrix for the validation data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat([step["logits"] for step in step_outputs], dim=0),
+                torch.cat(
+                    [step["categorical_targets"] for step in step_outputs], dim=0
+                ),
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(self.hparams.model.n_classes)),
+        )
+        self.logger.experiment.log({"val/confusion_matrix": plot})
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")

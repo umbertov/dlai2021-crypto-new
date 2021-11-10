@@ -1,0 +1,17 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: simple_ffn.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+model:
+  classification_loss_fn:
+    _target_: torch.nn.CrossEntropyLoss
+    weight:
+      _target_: torch.tensor
+      _args_:
+        - [1.1,1,1.1]
+

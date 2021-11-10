@@ -52,16 +52,20 @@ class AutoEncoder(nn.Module):
         in_size: int,
         hidden_sizes: list[int],
         activation: nn.Module = nn.Sigmoid(),
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.in_size = in_size
         self.hidden_sizes = hidden_sizes
         self.activation = activation
+        self.dropout = dropout
 
-        self.encoder = SimpleFeedForward(in_size, hidden_sizes, activation)
+        self.encoder = SimpleFeedForward(
+            in_size, hidden_sizes, activation, dropout=dropout
+        )
         decoder_hidden_sizes = list(reversed(hidden_sizes)) + [in_size]
         self.decoder = SimpleFeedForward(
-            hidden_sizes[-1], decoder_hidden_sizes, activation
+            hidden_sizes[-1], decoder_hidden_sizes, activation, dropout=dropout
         )
 
     def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:

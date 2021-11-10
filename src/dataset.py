@@ -102,7 +102,8 @@ def read_csv_datasets_from_glob(globstr: str, *args, **kwargs) -> Dataset:
     instead of `paths`.
     `globstr` is a glob pattern used to match filenames.
     """
-    return read_csv_datasets(glob(globstr), *args, **kwargs)
+    paths = list(glob(globstr))
+    return read_csv_datasets(paths, *args, **kwargs)
 
 
 if __name__ == "__main__":

@@ -7,10 +7,15 @@ model:
     in_size: ${length:${dataset_conf.input_columns}}
     hidden_sizes: [20,10,5]
     activation:
-      _target_: torch.nn.Tanh
+      _target_: ${model.activation}
+    dropout: ${model.dropout}
 classification_loss_fn:
   _target_: torch.nn.CrossEntropyLoss
 reconstruction_loss_fn:
   _target_: torch.nn.MSELoss
 reconstruction_loss_weight:
   1
+dropout:
+  0.0
+activation:
+  torch.nn.Tanh
