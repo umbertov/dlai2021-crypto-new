@@ -175,7 +175,7 @@ class AutoEncoderModel(pl.LightningModule):
             self.hparams.classification_loss_fn
         )
         self.reconstruction_loss_fn = hydra.utils.instantiate(
-            self.hparams.classification_loss_fn,
+            self.hparams.reconstruction_loss_fn,
             _recursive_=True,
         )
 
