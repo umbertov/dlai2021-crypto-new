@@ -56,11 +56,11 @@ def read_csv_dataset(
     categorical_targets: List[str],
     start_date=None,
     end_date=None,
-) -> Dataset:
+) -> Optional[Dataset]:
     if not isinstance(path, Path):
         path = Path(path)
     reader_fn = (
-        lambda df: (hydra.utils.instantiate(reader, df))
+        lambda datapath: hydra.utils.instantiate(reader)(datapath)
         if isinstance(reader, DictConfig)
         else reader
     )
@@ -70,7 +70,7 @@ def read_csv_dataset(
         )
     try:
         dataframe = reader_fn(path.absolute())
-    except TypeError:
+    except R.EmptyDataFrame as e:
         return None
     return DataframeDataset(
         dataframe,
@@ -85,16 +85,11 @@ def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
     """Same args as `read_csv_dataset`, except for the first one:
     - `paths`: a `List[str]` specifying a number of file paths, either absolute or relative
     """
-    return ConcatDataset(
-        [
-            i
-            for i in [
-                read_csv_dataset(path, *args, **kwargs) or None
-                for path in tqdm(paths, total=len(paths))
-            ]
-            if i is not None
-        ]
-    )
+    datasets = [
+        read_csv_dataset(path, *args, **kwargs) or None
+        for path in tqdm(paths, total=len(paths))
+    ]
+    return ConcatDataset([i for i in datasets if i is not None])
 
 
 def read_csv_datasets_from_glob(globstr: str, *args, **kwargs) -> Dataset:

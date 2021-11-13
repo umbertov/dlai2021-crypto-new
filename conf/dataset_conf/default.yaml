@@ -1,4 +1,7 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
+dataset_reader:
+  _target_: src.dataset_readers.example_reader
+
 input_columns:
   - Log(PctChange(Open_1h))
   - Log(PctChange(Sma9(Open_1h)))

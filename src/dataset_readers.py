@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
+
+from common.utils import get_hydra_cfg
 
 DEBUG = True
 
@@ -9,6 +11,10 @@ DEBUG = True
 # this would look nicer if python had (un/)currying
 
 # it all boils down to being able to write pre-processing as a chain of basic modules
+
+
+class EmptyDataFrame(Exception):
+    pass
 
 
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
@@ -48,6 +54,8 @@ def Compose(*transformations):
     def f(df):
         for t in transformations:
             df = t(df)
+            if len(df.index) == 0:
+                raise EmptyDataFrame
         return df
 
     return f
@@ -56,6 +64,12 @@ def Compose(*transformations):
 def remove_leading_trailing_nans(df: pd.DataFrame) -> pd.DataFrame:
     leading_index = pd.Series([df[col].first_valid_index() for col in df.columns]).max()
     trailing_index = pd.Series([df[col].last_valid_index() for col in df.columns]).min()
+    if (
+        len(df.index) == 0
+        or leading_index > df.index[-1]
+        or trailing_index < df.index[0]
+    ):
+        raise EmptyDataFrame
     return df.loc[leading_index:trailing_index]
 
 
@@ -71,6 +85,15 @@ Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
 BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 
 Strip = DataframeTransformer(remove_leading_trailing_nans)
+
+
+def ZScoreNormalize(colname: str, period: int, stddev_mult: float = 2.0):
+    def transformer(df):
+        mean = df.rolling(period).mean()
+        std = stddev_mult * df.rolling(period).std()
+        return (df - mean) / std
+
+    return ColumnTrasnformer(transformer, name=f"Zscore{period}")(colname)
 
 
 def Diff(col1, col2, logarithmic=False):
@@ -252,3 +275,40 @@ features = lambda column: Compose(
 )
 
 example_reader = Compose(read_yfinance_dataframe, features("Open"))
+
+
+def zscore_normalize_reader(columns: list[str], period: int, stddev_mult: float = 2):
+    normalizers = [ZScoreNormalize(colname, period, stddev_mult) for colname in columns]
+    return Compose(*normalizers)
+
+
+def DebugIfEmpty(df):
+    if len(df.index) == 0:
+        import ipdb
+
+        ipdb.set_trace()
+    return df
+
+
+zscore_reader = lambda normalize_colnames: Compose(
+    example_reader,
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    Strip(),
+    DebugIfEmpty,
+)
+
+
+if __name__ == "__main__":
+    cfg = get_hydra_cfg("../../conf")
+
+    input_columns = cfg.dataset_conf.input_columns
+    reader = Compose(
+        example_reader,
+        zscore_normalize_reader(input_columns, period=20),
+        zscore_normalize_reader(input_columns, period=50),
+        zscore_normalize_reader(input_columns, period=100),
+        Strip(),
+    )
+    df = reader("./data/yahoofinance_crypto/BTC-USD.2021-08-30.2021-10-28.csv")

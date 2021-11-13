@@ -110,12 +110,14 @@ class MyDataModule(pl.LightningDataModule):
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
-def main(cfg: omegaconf.DictConfig):
-    global datamodule
-    datamodule = hydra.utils.instantiate(cfg.data.datamodule, _recursive_=False)
+def main(conf: omegaconf.DictConfig):
+    global datamodule, cfg
+    cfg = conf.copy()
+    datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
     datamodule.setup()
 
 
 if __name__ == "__main__":
     datamodule = None
+    cfg = None
     main()
