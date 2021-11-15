@@ -19,21 +19,21 @@ import hydra
 import omegaconf
 
 
-def compute_accuracy(logits, targets):
+def compute_accuracy(logits, targets, n_classes):
     return M.accuracy(
         F.softmax(logits, dim=-1),
         targets,
-        average="weighted",
-        num_classes=3,
+        average="macro",
+        num_classes=n_classes,
     )
 
 
-def compute_confusion_matrix(logits, targets):
+def compute_confusion_matrix(logits, targets, n_classes):
     return M.confusion_matrix(
         F.softmax(logits.detach(), dim=-1),
         targets.detach(),
         normalize="true",  # normalize over targets ('true') or predictions ('pred')
-        num_classes=3,
+        num_classes=n_classes,
     )
 
 
@@ -75,7 +75,11 @@ class MLPClassifierModel(pl.LightningModule):
             out["clf_loss"] = classification_loss
             out["categorical_targets"] = categorical_targets
             out["loss"] = classification_loss
-            out["accuracy"] = compute_accuracy(prediction_logits, categorical_targets)
+            out["accuracy"] = compute_accuracy(
+                prediction_logits,
+                categorical_targets,
+                n_classes=self.hparams.model.n_classes,
+            )
 
         return out
 
@@ -85,7 +89,7 @@ class MLPClassifierModel(pl.LightningModule):
             {
                 "train/clf_loss": step_result["clf_loss"],
                 "train/loss": step_result["loss"],
-                "train/accuracy": step_result["accuracy"],
+                "train/accuracy_macro": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,
@@ -99,7 +103,7 @@ class MLPClassifierModel(pl.LightningModule):
             {
                 "val/clf_loss": step_result["clf_loss"],
                 "val/loss": step_result["loss"],
-                "val/accuracy": step_result["accuracy"],
+                "val/accuracy_macro": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,
@@ -115,6 +119,7 @@ class MLPClassifierModel(pl.LightningModule):
                 torch.cat(
                     [step["categorical_targets"] for step in step_outputs], dim=0
                 ),
+                n_classes=self.hparams.model.n_classes,
             )
             .cpu()
             .numpy()
@@ -133,6 +138,7 @@ class MLPClassifierModel(pl.LightningModule):
                 torch.cat(
                     [step["categorical_targets"] for step in step_outputs], dim=0
                 ),
+                n_classes=self.hparams.model.n_classes,
             )
             .cpu()
             .numpy()
@@ -219,7 +225,7 @@ class AutoEncoderModel(pl.LightningModule):
                 "train/clf_loss": step_result["clf_loss"],
                 "train/rec_loss": step_result["rec_loss"],
                 "train/loss": step_result["loss"],
-                "train/accuracy": step_result["accuracy"],
+                "train/accuracy_macro": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,
@@ -234,7 +240,7 @@ class AutoEncoderModel(pl.LightningModule):
                 "val/clf_loss": step_result["clf_loss"],
                 "val/rec_loss": step_result["rec_loss"],
                 "val/loss": step_result["loss"],
-                "val/accuracy": step_result["accuracy"],
+                "val/accuracy_macro": step_result["accuracy"],
             },
             on_step=False,
             on_epoch=True,

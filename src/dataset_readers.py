@@ -81,6 +81,8 @@ Sma = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"S
     col
 )
 RollingSum = ColumnTrasnformer(lambda col, window: col.rolling(window).sum())
+RollingMin = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
+RollingMax = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
 Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
 BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 
@@ -97,9 +99,7 @@ def ZScoreNormalize(
     colname: str, period: int, stddev_mult: float = 2.0, target_column=None
 ):
     def transformer(df):
-        mean = df.rolling(period).mean()
-        std = stddev_mult * df.rolling(period).std()
-        return (df - mean) / std
+        return zscore_norm_dataframe(df, period=period, stddev_mult=stddev_mult)
 
     return ColumnTrasnformer(transformer, name=f"Zscore{period}")(
         colname, target_column=target_column
@@ -272,11 +272,10 @@ features = lambda column: Compose(
     ######
     # continuous target declaration
     Shift(f"Log(PctChange({column}))", target_column="Target"),
-    ZScoreNormalize("Target", period=20, target_column="TargetNormed"),
+    ZScoreNormalize("Target", period=200, target_column="TargetNormed"),
     # categorical target declaration
     Shift(f"PctChange({column})"),
     Strip(),
-    DebugIfNan(),
     Bins(
         f"Shift(PctChange({column}))",
         bins=[0.0, 0.999, 1.001, float("inf")],
@@ -285,10 +284,12 @@ features = lambda column: Compose(
     BinCodes("Shift(ChangeCategorical)", target_column="TargetCategorical"),
     Bins(
         "TargetNormed",
-        bins=[float("-inf"), -0.8, 0.0, 0.8, float("inf")],
+        bins=[float("-inf"), -0.18, 0.18, float("inf")],
         target_column="TargetNormedCategoricalBins",
     ),
     BinCodes("TargetNormedCategoricalBins", target_column="TargetNormedCategorical"),
+    Strip(),
+    DebugIfNan(),
 )
 
 
