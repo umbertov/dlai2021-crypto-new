@@ -37,7 +37,7 @@ def ColumnTrasnformer(function, name=None):
 
         def apply(dataframe):
             dataframe[target_column] = function(
-                dataframe[input_column], **additional_args
+                dataframe[input_column].copy(), **additional_args
             )
             return dataframe
 
@@ -87,13 +87,23 @@ BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 Strip = DataframeTransformer(remove_leading_trailing_nans)
 
 
-def ZScoreNormalize(colname: str, period: int, stddev_mult: float = 2.0):
+def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0):
+    mean = df.rolling(period).mean()
+    std = stddev_mult * df.rolling(period).std()
+    return (df - mean) / std
+
+
+def ZScoreNormalize(
+    colname: str, period: int, stddev_mult: float = 2.0, target_column=None
+):
     def transformer(df):
         mean = df.rolling(period).mean()
         std = stddev_mult * df.rolling(period).std()
         return (df - mean) / std
 
-    return ColumnTrasnformer(transformer, name=f"Zscore{period}")(colname)
+    return ColumnTrasnformer(transformer, name=f"Zscore{period}")(
+        colname, target_column=target_column
+    )
 
 
 def Diff(col1, col2, logarithmic=False):
@@ -262,6 +272,7 @@ features = lambda column: Compose(
     ######
     # continuous target declaration
     Shift(f"Log(PctChange({column}))", target_column="Target"),
+    ZScoreNormalize("Target", period=20, target_column="TargetNormed"),
     # categorical target declaration
     Shift(f"PctChange({column})"),
     Strip(),
@@ -272,7 +283,14 @@ features = lambda column: Compose(
         target_column="Shift(ChangeCategorical)",
     ),
     BinCodes("Shift(ChangeCategorical)", target_column="TargetCategorical"),
+    Bins(
+        "TargetNormed",
+        bins=[float("-inf"), -0.8, 0.0, 0.8, float("inf")],
+        target_column="TargetNormedCategoricalBins",
+    ),
+    BinCodes("TargetNormedCategoricalBins", target_column="TargetNormedCategorical"),
 )
+
 
 example_reader = Compose(read_yfinance_dataframe, features("Open"))
 
