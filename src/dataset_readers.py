@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Callable, Optional, Tuple
+from ta.momentum import RSIIndicator
 
 from common.utils import get_hydra_cfg
 
@@ -87,6 +88,8 @@ Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
 BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 
 Strip = DataframeTransformer(remove_leading_trailing_nans)
+
+RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna(), name="RSI")
 
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0):
@@ -227,73 +230,134 @@ def Multi_Sma_LogPctChange_LogDiff(colname, sma_lengths: list[int]):
     )
 
 
-features = lambda column: Compose(
-    ######## FEATURES
+def rolling_sums(windows):
+    return Compose(
+        *[
+            RollingSum(
+                f"Log(PctChange(Open))",
+                window=window,
+                target_column=f"LogCumReturn{window}(Open)",
+            )
+            for window in windows
+        ]
+    )
+
+
+def features_from_1h(df):
+    return Compose(
+        ### Features from another timeframe
+        ### (1h timeframe)
+        ResampleThenJoin(
+            "1h",
+            Compose(
+                LogPctChange(f"Open_1h"),
+                AddShiftedColumns(1, [f"Open_1h"]),
+                Multi_Sma_LogPctChange_LogDiff(f"Open_1h", [9, 12, 26]),
+                Strip(),
+                DebugIfNan(),
+            ),
+        ),
+        LogDiff("Open", f"Sma9(Open_1h)"),
+        LogDiff("Open", f"Sma12(Open_1h)"),
+        LogDiff("Open", f"Sma26(Open_1h)"),
+    )(df)
+
+
+def logreturn_target():
+    return Shift(f"Log(PctChange(Open))", target_column="Target")
+
+
+def cumreturn_target(periods=5):
+    def f(df):
+        logreturns = df["Log(PctChange(Open))"]
+        rollingsum = logreturns.rolling(periods).sum().shift(-periods)
+        target = rollingsum.shift(-1)
+        df["Target"] = target
+        return df
+
+    return f
+
+
+def bin_column(column, bins):
+    return Compose(
+        Bins(column, bins=bins),
+        BinCodes(f"Bins({column})", target_column=f"{column}Categorical"),
+    )
+
+
+def qbin_column(column, q):
+    return Compose(
+        QBins(column, q=q),
+        BinCodes(f"QBins({column})", target_column=f"{column}Categorical"),
+    )
+
+
+def bin_target(bins):
+    return bin_column("Target", bins)
+
+
+def qbin_target(q):
+    return qbin_column("Target", q)
+
+
+def qbins(df, q):
+    _, bins = pd.qcut(df, q, retbins=True)
+    bins[0] = float("-inf")
+    bins[-1] = float("inf")
+    return pd.cut(df, bins=bins)
+
+
+QBins = ColumnTrasnformer(qbins, name="QBins")
+
+
+def zscore_normalize_target(period=200):
+    return ZScoreNormalize("Target", period=period, target_column="TargetNormed")
+
+
+feature_set_1 = Compose(
     ### features from default timeframe (5min)
     # logarithmic pct change from last row
-    LogPctChange(f"{column}"),
+    LogPctChange(f"Open"),
+    #
+    rolling_sums(windows=[12, 48, 488]),
+    RSI(f"Open"),
     # simple moving averages + logdiff betweek column and sma + log pct change in sma
-    Multi_Sma_LogPctChange_LogDiff(column, [9, 12, 26]),
-    # hourly log-pct change (5min * 12 = 60min)
-    RollingSum(
-        f"Log(PctChange({column}))",
-        window=12,
-        target_column=f"LogCumReturn12({column})",
-    ),
-    # 4-hourly log-pct change (5min*48 = 4h)
-    RollingSum(
-        f"Log(PctChange({column}))",
-        window=48,
-        target_column=f"LogCumReturn48({column})",
-    ),
-    # 24-hourly log-pct change (5min*288 = 24h)
-    RollingSum(
-        f"Log(PctChange({column}))",
-        window=288,
-        target_column=f"LogCumReturn288({column})",
-    ),
-    ### Features from another timeframe
-    ### (1h timeframe)
-    ResampleThenJoin(
-        "1h",
-        Compose(
-            LogPctChange(f"{column}_1h"),
-            AddShiftedColumns(1, [f"{column}_1h"]),
-            Multi_Sma_LogPctChange_LogDiff(f"{column}_1h", [9, 12, 26]),
-            Strip(),
-            DebugIfNan(),
-        ),
-    ),
-    LogDiff(column, f"Sma9({column}_1h)"),
-    LogDiff(column, f"Sma12({column}_1h)"),
-    LogDiff(column, f"Sma26({column}_1h)"),
-    ######
-    #####  TARGETS
-    ######
-    # continuous target declaration
-    Shift(f"Log(PctChange({column}))", target_column="Target"),
-    ZScoreNormalize("Target", period=200, target_column="TargetNormed"),
-    # categorical target declaration
-    Shift(f"PctChange({column})"),
-    Strip(),
-    Bins(
-        f"Shift(PctChange({column}))",
-        bins=[0.0, 0.999, 1.001, float("inf")],
-        target_column="Shift(ChangeCategorical)",
-    ),
-    BinCodes("Shift(ChangeCategorical)", target_column="TargetCategorical"),
-    Bins(
-        "TargetNormed",
-        bins=[float("-inf"), -0.18, 0.18, float("inf")],
-        target_column="TargetNormedCategoricalBins",
-    ),
-    BinCodes("TargetNormedCategoricalBins", target_column="TargetNormedCategorical"),
+    Multi_Sma_LogPctChange_LogDiff("Open", [9, 12, 26]),
+    features_from_1h,
+)
+
+
+example_reader = lambda: Compose(
+    read_yfinance_dataframe,
+    feature_set_1,
+    logreturn_target(),
+    bin_target(bins=[0.0, 0.999, 1.001, float("inf")]),
+    zscore_normalize_target(period=200),
     Strip(),
     DebugIfNan(),
 )
 
 
-example_reader = Compose(read_yfinance_dataframe, features("Open"))
+qbin_reader = lambda q: Compose(
+    read_yfinance_dataframe,
+    feature_set_1,
+    logreturn_target(),
+    qbin_target(q=q),
+    zscore_normalize_target(period=200),
+    Strip(),
+    DebugIfNan(),
+)
+
+
+qbin_cumreturn_reader = lambda q: Compose(
+    read_yfinance_dataframe,
+    feature_set_1,
+    cumreturn_target(5),
+    qbin_target(q=q),
+    zscore_normalize_target(period=50),
+    Strip(),
+    DebugIfNan(),
+)
 
 
 def zscore_normalize_reader(columns: list[str], period: int, stddev_mult: float = 2):
@@ -314,6 +378,17 @@ zscore_reader = lambda normalize_colnames: Compose(
     zscore_normalize_reader(normalize_colnames, period=20),
     zscore_normalize_reader(normalize_colnames, period=50),
     zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
+    Strip(),
+    DebugIfEmpty,
+)
+
+zscore_reader_qbins = lambda q, normalize_colnames: Compose(
+    qbin_reader(q=q),
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
     Strip(),
     DebugIfEmpty,
 )

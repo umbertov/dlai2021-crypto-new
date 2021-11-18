@@ -1,10 +1,11 @@
-_target_: src.lit_models.MLPClassifierModel
+_target_: src.lit_models.TimeSeriesModule
 model:
   _target_: src.models.Classifier
   n_classes: ${dataset_conf.n_classes}
   feature_extractor:
     _target_: src.models.SimpleFeedForward
     in_size: ${length:${dataset_conf.input_columns}}
+    window_length: ${dataset_conf.window_length}
     hidden_sizes: [200,100,50]
     activation:
       _target_: ${model.activation}
@@ -13,7 +14,6 @@ model:
 classification_loss_fn:
   _target_: torch.nn.CrossEntropyLoss
 reconstruction_loss_fn:
-  _target_: torch.nn.MSELoss
 reconstruction_loss_weight:
   1
 dropout: 0.0

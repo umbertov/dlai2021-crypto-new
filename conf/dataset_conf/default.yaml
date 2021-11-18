@@ -1,4 +1,5 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
+window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.example_reader
 
@@ -22,7 +23,7 @@ input_columns:
   - Log(Open - Sma26(Open))
   - LogCumReturn12(Open)
   - LogCumReturn48(Open)
-  - LogCumReturn288(Open)
+  - LogCumReturn488(Open)
 continuous_targets:
   - Target
 categorical_targets:

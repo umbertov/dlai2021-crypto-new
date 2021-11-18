@@ -1,4 +1,5 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
+window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.zscore_reader
   normalize_colnames: 

@@ -11,6 +11,7 @@ datamodule:
       categorical_targets: ${dataset_conf.categorical_targets}
       start_date: ${dataset_conf.train_period.start}
       end_date: ${dataset_conf.train_period.end}
+      window_length: ${dataset_conf.window_length}
 
     val:
       - _target_: src.dataset.read_csv_datasets_from_glob
@@ -21,6 +22,8 @@ datamodule:
         categorical_targets: ${dataset_conf.categorical_targets}
         start_date: ${dataset_conf.val_period.start}
         end_date: ${dataset_conf.val_period.end}
+        window_length: ${dataset_conf.window_length}
+
 
     test:
     #  - _target_: src.dataset.read_csv_datasets_from_glob

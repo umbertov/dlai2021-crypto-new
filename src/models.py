@@ -1,3 +1,4 @@
+from einops.einops import rearrange
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -18,6 +19,24 @@ def NonLinear(
     )
 
 
+class DictEmbedder(nn.Module):
+    def __init__(self, key2hiddensize: dict[str, tuple[int, int]]):
+        self.k2h = key2hiddensize
+        self.modules_dict = dict()
+        for key, (in_size, hidden_size) in key2hiddensize.items():
+            self.modules_dict[key] = NonLinear(in_size=in_size, hidden_size=hidden_size)
+        self.modules = nn.ModuleList(list(self.modules_dict.items()))
+
+    def forward(self, **keys2tensors) -> dict[str, torch.Tensor]:
+        if not all(k in self.modules_dict.keys() for k in keys2tensors):
+            raise KeyError
+        res = {
+            key: self.modules_dict[key](input_tensor)
+            for key, input_tensor in keys2tensors.items()
+        }
+        return res
+
+
 class SimpleFeedForward(nn.Module):
     def __init__(
         self,
@@ -25,12 +44,15 @@ class SimpleFeedForward(nn.Module):
         hidden_sizes: list[int],
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
+        window_length: int = 1,
     ):
         super().__init__()
+        in_size *= window_length
         self.in_size = in_size
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.dropout = dropout
+        self.window_length = window_length
 
         # list of tuples of adjacent layer sizes
         projection_sizes = list(zip([in_size] + hidden_sizes, hidden_sizes))
@@ -43,6 +65,10 @@ class SimpleFeedForward(nn.Module):
         )
 
     def forward(self, x):
+        if x.dim() == 3:
+            x = rearrange(
+                x, "batch window features -> batch (window features)"
+            ).unsqueeze(1)
         return self.net(x)
 
 
@@ -53,19 +79,28 @@ class AutoEncoder(nn.Module):
         hidden_sizes: list[int],
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
+        window_length: int = 1,
     ):
         super().__init__()
+        in_size *= window_length
         self.in_size = in_size
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.dropout = dropout
+        self.window_length = window_length
 
         self.encoder = SimpleFeedForward(
-            in_size, hidden_sizes, activation, dropout=dropout
+            in_size,
+            hidden_sizes,
+            activation,
+            dropout=dropout,
         )
         decoder_hidden_sizes = list(reversed(hidden_sizes)) + [in_size]
         self.decoder = SimpleFeedForward(
-            hidden_sizes[-1], decoder_hidden_sizes, activation, dropout=dropout
+            hidden_sizes[-1],
+            decoder_hidden_sizes,
+            activation,
+            dropout=dropout,
         )
 
     def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
@@ -94,7 +129,7 @@ class Classifier(nn.Module):
 
     def forward(self, x):
         features = self.feature_extractor(x)
-        return self.classifier(features)
+        return {"classification_logits": self.classifier(features)}
 
 
 class ClassifierWithAutoEncoder(nn.Module):
@@ -107,4 +142,7 @@ class ClassifierWithAutoEncoder(nn.Module):
     def forward(self, x):
         encoded, reconstruction = self.autoencoder(x)
         predictions = self.classifier(encoded)
-        return predictions, reconstruction
+        return {
+            "classification_logits": predictions,
+            "reconstruction": torch.tanh(reconstruction),
+        }

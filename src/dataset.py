@@ -18,28 +18,39 @@ class DataframeDataset(TensorDataset):
     continuous_targets: List[str]
     categorical_targets: List[str]
     name: str
+    window_length: int
 
     def __init__(
         self,
         dataframe,
         input_columns,
-        continuous_targets_columns,
-        categorical_targets_columns,
+        continuous_targets,
+        categorical_targets,
         name,
+        window_length=1,
     ):
         self.dataframe = dataframe
         self.input_columns = input_columns
-        self.continuous_targets = continuous_targets_columns
-        self.categorical_targets = categorical_targets_columns
+        self.continuous_targets = continuous_targets
+        self.categorical_targets = categorical_targets
         self.name = name
+        self.window_length = window_length
 
-        input_tensors = from_pandas(dataframe[input_columns]).float()
+        window_indices = [
+            range(i, i + window_length) for i in range(len(dataframe) - window_length)
+        ]
+        self.window_indices = window_indices
+        input_tensors = from_pandas(dataframe[input_columns]).float()[window_indices]
 
         targets = []
-        if continuous_targets_columns is not None:
-            targets.append(from_pandas(dataframe[continuous_targets_columns]).float())
-        if categorical_targets_columns is not None:
-            targets.append(from_pandas(dataframe[categorical_targets_columns]).long())
+        if continuous_targets is not None:
+            targets.append(
+                from_pandas(dataframe[continuous_targets]).float()[window_indices]
+            )
+        if categorical_targets is not None:
+            targets.append(
+                from_pandas(dataframe[categorical_targets]).long()[window_indices]
+            )
 
         super().__init__(input_tensors, *targets)
 
@@ -56,6 +67,7 @@ def read_csv_dataset(
     categorical_targets: List[str],
     start_date=None,
     end_date=None,
+    **kwargs,
 ) -> Optional[Dataset]:
     if not isinstance(path, Path):
         path = Path(path)
@@ -78,6 +90,7 @@ def read_csv_dataset(
         continuous_targets,
         categorical_targets,
         name=path.stem,
+        **kwargs,
     )
 
 

@@ -1,7 +1,9 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
 window_length: 1
 dataset_reader:
-  _target_: src.dataset_readers.zscore_reader
+  _target_: src.dataset_readers.zscore_reader_qbins
+  q:
+    2
   normalize_colnames: 
     - Open
     - Log(PctChange(Open))
@@ -13,8 +15,9 @@ dataset_reader:
     - Log(Open - Sma26(Open))
     - LogCumReturn12(Open)
     - LogCumReturn48(Open)
-    - LogCumReturn288(Open)
+    - LogCumReturn488(Open)
 input_columns:
+  - RSI(Open)
   - Zscore20(Open)
   - Zscore20(Log(PctChange(Open)))
   - Zscore20(Log(PctChange(Sma9(Open))))
@@ -25,7 +28,7 @@ input_columns:
   - Zscore20(Log(Open - Sma26(Open)))
   - Zscore20(LogCumReturn12(Open))
   - Zscore20(LogCumReturn48(Open))
-  - Zscore20(LogCumReturn288(Open))
+  - Zscore20(LogCumReturn488(Open))
   - Zscore50(Open)
   - Zscore50(Log(PctChange(Open)))
   - Zscore50(Log(PctChange(Sma9(Open))))
@@ -36,7 +39,7 @@ input_columns:
   - Zscore50(Log(Open - Sma26(Open)))
   - Zscore50(LogCumReturn12(Open))
   - Zscore50(LogCumReturn48(Open))
-  - Zscore50(LogCumReturn288(Open))
+  - Zscore50(LogCumReturn488(Open))
   - Zscore100(Open)
   - Zscore100(Log(PctChange(Open)))
   - Zscore100(Log(PctChange(Sma9(Open))))
@@ -47,23 +50,23 @@ input_columns:
   - Zscore100(Log(Open - Sma26(Open)))
   - Zscore100(LogCumReturn12(Open))
   - Zscore100(LogCumReturn48(Open))
-  - Zscore100(LogCumReturn288(Open))
-  - Log(PctChange(Open_1h))
-  - Log(PctChange(Sma9(Open_1h)))
-  - Log(Open_1h - Sma9(Open_1h))
-  - Log(PctChange(Sma12(Open_1h)))
-  - Log(Open_1h - Sma12(Open_1h))
-  - Log(PctChange(Sma26(Open_1h)))
-  - Log(Open_1h - Sma26(Open_1h))
-  - Log(Open - Sma9(Open_1h))
-  - Log(Open - Sma12(Open_1h))
-  - Log(Open - Sma26(Open_1h))
+  - Zscore100(LogCumReturn488(Open))
+  - Zscore200(Log(PctChange(Open)))
+  - Zscore200(Log(PctChange(Sma9(Open))))
+  - Zscore200(Log(Open - Sma9(Open)))
+  - Zscore200(Log(PctChange(Sma12(Open))))
+  - Zscore200(Log(Open - Sma12(Open)))
+  - Zscore200(Log(PctChange(Sma26(Open))))
+  - Zscore200(Log(Open - Sma26(Open)))
+  - Zscore200(LogCumReturn12(Open))
+  - Zscore200(LogCumReturn48(Open))
+  - Zscore200(LogCumReturn488(Open))
 
 continuous_targets:
-  - Target
+  - TargetNormed
 categorical_targets:
   - TargetCategorical
-n_classes: 3
+n_classes: ${dataset_conf.dataset_reader.q}
 train_period:
   start: 2021-05-01
   end: 2021-10-01
