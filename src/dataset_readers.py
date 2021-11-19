@@ -263,11 +263,15 @@ def features_from_1h(df):
     )(df)
 
 
-def logreturn_target():
+def logreturns_target():
     return Shift(f"Log(PctChange(Open))", target_column="Target")
 
 
-def cumreturn_target(periods=5):
+def returns_target():
+    return Shift(f"PctChange(Open)", target_column="Target")
+
+
+def cumlogreturn_target(periods=5):
     def f(df):
         logreturns = df["Log(PctChange(Open))"]
         rollingsum = logreturns.rolling(periods).sum().shift(-periods)
@@ -327,22 +331,23 @@ feature_set_1 = Compose(
 )
 
 
-example_reader = lambda: Compose(
+example_reader = lambda df: Compose(
     read_yfinance_dataframe,
     feature_set_1,
-    logreturn_target(),
+    returns_target(),
     bin_target(bins=[0.0, 0.999, 1.001, float("inf")]),
+    Log("Target", target_column="Target"),
     zscore_normalize_target(period=200),
     Strip(),
     DebugIfNan(),
-)
+)(df)
 
 
 qbin_reader = lambda q: Compose(
     read_yfinance_dataframe,
     feature_set_1,
-    logreturn_target(),
-    qbin_target(q=q),
+    logreturns_target(),
+    qbin_column("Target", q=q),
     zscore_normalize_target(period=200),
     Strip(),
     DebugIfNan(),
@@ -352,11 +357,42 @@ qbin_reader = lambda q: Compose(
 qbin_cumreturn_reader = lambda q: Compose(
     read_yfinance_dataframe,
     feature_set_1,
-    cumreturn_target(5),
-    qbin_target(q=q),
+    cumlogreturn_target(5),
+    qbin_column("Target", q=q),
     zscore_normalize_target(period=50),
     Strip(),
     DebugIfNan(),
+)
+
+
+zscore_reader = lambda normalize_colnames: Compose(
+    example_reader,
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
+    Strip(),
+    DebugIfEmpty,
+)
+
+zscore_reader_qbins = lambda normalize_colnames, q: Compose(
+    qbin_reader(q=q),
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
+    Strip(),
+    DebugIfEmpty,
+)
+
+zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
+    qbin_cumreturn_reader(q=q),
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
+    Strip(),
+    DebugIfEmpty,
 )
 
 
@@ -371,27 +407,6 @@ def DebugIfEmpty(df):
 
         ipdb.set_trace()
     return df
-
-
-zscore_reader = lambda normalize_colnames: Compose(
-    example_reader,
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
-    Strip(),
-    DebugIfEmpty,
-)
-
-zscore_reader_qbins = lambda q, normalize_colnames: Compose(
-    qbin_reader(q=q),
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
-    Strip(),
-    DebugIfEmpty,
-)
 
 
 if __name__ == "__main__":

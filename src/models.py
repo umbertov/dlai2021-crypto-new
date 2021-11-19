@@ -144,5 +144,5 @@ class ClassifierWithAutoEncoder(nn.Module):
         predictions = self.classifier(encoded)
         return {
             "classification_logits": predictions,
-            "reconstruction": torch.tanh(reconstruction),
+            "reconstruction": reconstruction,
         }
