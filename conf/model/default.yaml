@@ -1,4 +1,5 @@
 _target_: src.lit_models.TimeSeriesModule
+name: autoencoder_mlp
 model:
   _target_: src.models.ClassifierWithAutoEncoder
   n_classes: ${dataset_conf.n_classes}

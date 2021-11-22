@@ -53,6 +53,7 @@ class SimpleFeedForward(nn.Module):
         self.activation = activation
         self.dropout = dropout
         self.window_length = window_length
+        self.out_dim = self.hidden_sizes[-1]
 
         # list of tuples of adjacent layer sizes
         projection_sizes = list(zip([in_size] + hidden_sizes, hidden_sizes))
@@ -70,6 +71,42 @@ class SimpleFeedForward(nn.Module):
                 x, "batch window features -> batch (window features)"
             ).unsqueeze(1)
         return self.net(x)
+
+
+class LstmModel(nn.Module):
+    def __init__(self, in_size, hidden_size, window_length, num_layers, dropout=0.0):
+        super().__init__()
+        self.in_size = in_size
+        self.hidden_size = hidden_size
+        self.window_length = window_length
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.lstm = nn.LSTM(
+            input_size=in_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout,
+            bidirectional=False,
+        )
+        self.out_dim = self.window_length * self.hidden_size
+
+    def forward(self, x):
+        encoded_seq, _ = self.lstm(x)
+        return encoded_seq
+        # return rearrange(encoded_seq, "batch seqlen f -> batch (seqlen f)")
+
+
+class LstmMLP(nn.Module):
+    def __init__(self, lstm: LstmModel, mlp: SimpleFeedForward):
+        super().__init__()
+        self.lstm = lstm
+        self.mlp = mlp
+        self.model = nn.Sequential(lstm, mlp)
+        self.out_dim = self.mlp.out_dim
+
+    def forward(self, x):
+        return self.model(x)
 
 
 class AutoEncoder(nn.Module):
@@ -118,9 +155,7 @@ class Classifier(nn.Module):
     ):
         super().__init__()
         feature_dim = (
-            feature_dim
-            if feature_dim is not None
-            else feature_extractor.hidden_sizes[-1]
+            feature_dim if feature_dim is not None else feature_extractor.out_dim
         )
         self.feature_extractor = feature_extractor
         self.n_classes = n_classes

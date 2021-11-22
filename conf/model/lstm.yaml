@@ -1,0 +1,30 @@
+_target_: src.lit_models.TimeSeriesModule
+name: lstm
+model:
+  _target_: src.models.Classifier
+  n_classes: ${dataset_conf.n_classes}
+  feature_extractor:
+    _target_: src.models.LstmMLP
+    lstm:
+      _target_: src.models.LstmModel
+      in_size: ${length:${dataset_conf.input_columns}}
+      hidden_size: 64
+      window_length: ${dataset_conf.window_length}
+      num_layers: 1
+    mlp:
+      _target_: src.models.SimpleFeedForward
+      in_size: ${model.model.feature_extractor.lstm.hidden_size}
+      window_length: ${dataset_conf.window_length}
+      hidden_sizes: [100,50]
+      activation:
+        _target_: ${model.activation}
+      dropout:
+        ${model.dropout}
+classification_loss_fn:
+  _target_: torch.nn.CrossEntropyLoss
+reconstruction_loss_fn:
+reconstruction_loss_weight:
+  1
+dropout: 0.0
+activation:
+  torch.nn.ReLU

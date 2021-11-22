@@ -70,7 +70,7 @@ class TimeSeriesModule(pl.LightningModule):
 
         out = model_out
 
-        if reconstruction is not None:
+        if reconstruction is not None and continuous_targets is not None:
             reconstruction_loss = (
                 self.hparams.reconstruction_loss_weight  # type: ignore
                 * self.reconstruction_loss_fn(reconstruction.view(-1), inputs.view(-1))
@@ -79,7 +79,7 @@ class TimeSeriesModule(pl.LightningModule):
             out["continuous_targets"] = continuous_targets
             out["loss"] = reconstruction_loss
 
-        if prediction_logits is not None:
+        if prediction_logits is not None and categorical_targets is not None:
             if prediction_logits.size(1) == 1:  # seq. len of 1
                 categorical_targets = categorical_targets[:, [-1], :]
             classification_loss = self.classification_loss_fn(
@@ -195,8 +195,17 @@ def main(cfg: omegaconf.DictConfig):
         _recursive_=False,
     )
     in_size = len(cfg.dataset_conf.input_columns)
-    example_tensor = torch.randn(2, in_size)
-    example_output = model(example_tensor)
+    example_in_tensor = torch.randn(2, cfg.dataset_conf.window_length, in_size)
+    example_categorical_tensor = torch.randint_like(
+        example_in_tensor[:, :, [0]], 0, cfg.dataset_conf.n_classes
+    ).long()
+    example_continuous_tensor = torch.randn_like(example_in_tensor)
+
+    example_output = model(
+        example_in_tensor,
+        continuous_targets=example_continuous_tensor,
+        categorical_targets=example_categorical_tensor,
+    )
 
 
 if __name__ == "__main__":

@@ -19,8 +19,11 @@ class EmptyDataFrame(Exception):
 
 
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
-    dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
-    dataframe.index = dataframe.Date
+    try:
+        dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
+    except ValueError:
+        dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Datetime"]).rename(columns={"Datetime": "Date"})  # type: ignore
+    dataframe.index = pd.to_datetime(dataframe["Date"], utc=True)
     dataframe.drop("Date", inplace=True, axis="columns")
     return dataframe
 
@@ -254,12 +257,14 @@ def features_from_1h(df):
                 AddShiftedColumns(1, [f"Open_1h"]),
                 Multi_Sma_LogPctChange_LogDiff(f"Open_1h", [9, 12, 26]),
                 Strip(),
-                DebugIfNan(),
             ),
         ),
         LogDiff("Open", f"Sma9(Open_1h)"),
         LogDiff("Open", f"Sma12(Open_1h)"),
         LogDiff("Open", f"Sma26(Open_1h)"),
+        Strip(),
+        lambda df: df.dropna(),
+        DebugIfNan(),
     )(df)
 
 
@@ -331,7 +336,7 @@ feature_set_1 = Compose(
 )
 
 
-example_reader = lambda df: Compose(
+example_reader = lambda: lambda df: Compose(
     read_yfinance_dataframe,
     feature_set_1,
     returns_target(),
@@ -359,6 +364,17 @@ qbin_cumreturn_reader = lambda q: Compose(
     feature_set_1,
     cumlogreturn_target(5),
     qbin_column("Target", q=q),
+    zscore_normalize_target(period=50),
+    Strip(),
+    DebugIfNan(),
+)
+
+
+bin_cumreturn_reader = lambda bins: Compose(
+    read_yfinance_dataframe,
+    feature_set_1,
+    cumlogreturn_target(5),
+    bin_column("Target", bins=bins),
     zscore_normalize_target(period=50),
     Strip(),
     DebugIfNan(),
@@ -394,6 +410,19 @@ zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
     Strip(),
     DebugIfEmpty,
 )
+
+zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
+    bin_cumreturn_reader(bins=GTZERO_BINS),
+    zscore_normalize_reader(normalize_colnames, period=20),
+    zscore_normalize_reader(normalize_colnames, period=50),
+    zscore_normalize_reader(normalize_colnames, period=100),
+    zscore_normalize_reader(normalize_colnames, period=200),
+    Strip(),
+    DebugIfEmpty,
+)
+
+
+GTZERO_BINS = [float("-inf"), 0, float("inf")]
 
 
 def zscore_normalize_reader(columns: list[str], period: int, stddev_mult: float = 2):
