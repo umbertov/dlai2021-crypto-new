@@ -45,15 +45,18 @@ class SimpleFeedForward(nn.Module):
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
         window_length: int = 1,
+        flatten_input=True,
     ):
         super().__init__()
-        in_size *= window_length
+        if flatten_input:
+            in_size *= window_length
         self.in_size = in_size
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.dropout = dropout
         self.window_length = window_length
         self.out_dim = self.hidden_sizes[-1]
+        self.flatten_input = flatten_input
 
         # list of tuples of adjacent layer sizes
         projection_sizes = list(zip([in_size] + hidden_sizes, hidden_sizes))
@@ -66,7 +69,7 @@ class SimpleFeedForward(nn.Module):
         )
 
     def forward(self, x):
-        if x.dim() == 3:
+        if x.dim() == 3 and self.flatten_input:
             x = rearrange(
                 x, "batch window features -> batch (window features)"
             ).unsqueeze(1)

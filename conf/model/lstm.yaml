@@ -20,6 +20,7 @@ model:
         _target_: ${model.activation}
       dropout:
         ${model.dropout}
+      flatten_input: ${model.flatten_input}
 classification_loss_fn:
   _target_: torch.nn.CrossEntropyLoss
 reconstruction_loss_fn:
@@ -28,3 +29,4 @@ reconstruction_loss_weight:
 dropout: 0.0
 activation:
   torch.nn.ReLU
+flatten_input: True

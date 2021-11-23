@@ -115,6 +115,14 @@ def main(conf: omegaconf.DictConfig):
     cfg = conf.copy()
     datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
     datamodule.setup()
+    model = hydra.utils.instantiate(
+        cfg.model,
+        optim=cfg.optim,
+        # logging=cfg.logging,
+        _recursive_=False,
+    )
+    ins, cont, cat = next(iter(datamodule.train_dataloader()))
+    model(ins, categorical_targets=cat)
 
 
 if __name__ == "__main__":

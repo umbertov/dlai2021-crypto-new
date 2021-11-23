@@ -31,7 +31,7 @@ def compute_accuracy(logits, targets, n_classes):
 def compute_confusion_matrix(logits, targets, n_classes):
     return M.confusion_matrix(
         F.softmax(logits.detach(), dim=-1),
-        targets.detach(),
+        targets.detach().view(-1),
         normalize="true",  # normalize over targets ('true') or predictions ('pred')
         num_classes=n_classes,
     )
@@ -49,6 +49,7 @@ class TimeSeriesModule(pl.LightningModule):
         self.model = hydra.utils.instantiate(
             self.hparams.model, _recursive_=True, _convert_="partial"
         )
+        self.flatten_input = kwargs.get("flatten_input", True)
 
         self.classification_loss_fn = hydra.utils.instantiate(
             self.hparams.classification_loss_fn
@@ -65,34 +66,45 @@ class TimeSeriesModule(pl.LightningModule):
         categorical_targets: torch.Tensor = None,
     ):
         model_out = self.model(inputs)
-        prediction_logits = model_out.get("classification_logits", None)
+        classification_logits = model_out.get("classification_logits", None)
         reconstruction = model_out.get("reconstruction", None)
 
-        out = model_out
+        out = dict()
 
         if reconstruction is not None and continuous_targets is not None:
             reconstruction_loss = (
                 self.hparams.reconstruction_loss_weight  # type: ignore
                 * self.reconstruction_loss_fn(reconstruction.view(-1), inputs.view(-1))
             )
-            out["rec_loss"] = reconstruction_loss
-            out["continuous_targets"] = continuous_targets
-            out["loss"] = reconstruction_loss
+            out.update(
+                {
+                    "rec_loss": reconstruction_loss,
+                    "continuous_targets": continuous_targets,
+                    "loss": reconstruction_loss,
+                    "reconstruction": reconstruction,
+                }
+            )
 
-        if prediction_logits is not None and categorical_targets is not None:
-            if prediction_logits.size(1) == 1:  # seq. len of 1
+        if classification_logits is not None and categorical_targets is not None:
+            if classification_logits.size(1) == 1:  # seq. len of 1
                 categorical_targets = categorical_targets[:, [-1], :]
+            classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
             classification_loss = self.classification_loss_fn(
-                rearrange(prediction_logits, "b l c -> (b l) c"),
+                classification_logits,
                 categorical_targets.view(-1),
             )
-            out["clf_loss"] = classification_loss
-            out["categorical_targets"] = categorical_targets
-            out["loss"] = out.get("rec_loss", 0) + classification_loss
-            out["accuracy"] = compute_accuracy(
-                prediction_logits,
-                categorical_targets,
-                n_classes=self.hparams.model.n_classes,
+            out.update(
+                {
+                    "clf_loss": classification_loss,
+                    "categorical_targets": categorical_targets,
+                    "loss": out.get("rec_loss", 0) + classification_loss,
+                    "accuracy": compute_accuracy(
+                        classification_logits,
+                        categorical_targets.view(-1),
+                        n_classes=self.hparams.model.n_classes,
+                    ),
+                    "classification_logits": classification_logits,
+                }
             )
 
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
@@ -197,7 +209,7 @@ def main(cfg: omegaconf.DictConfig):
     in_size = len(cfg.dataset_conf.input_columns)
     example_in_tensor = torch.randn(2, cfg.dataset_conf.window_length, in_size)
     example_categorical_tensor = torch.randint_like(
-        example_in_tensor[:, :, [0]], 0, cfg.dataset_conf.n_classes
+        example_in_tensor[:, :, :], 0, cfg.dataset_conf.n_classes
     ).long()
     example_continuous_tensor = torch.randn_like(example_in_tensor)
 
