@@ -1,4 +1,6 @@
-data_path: ${oc.env:PROJECT_ROOT}/data/yahoofinance_crypto/*.csv
+defaults:
+  - data_path: yahoofinance5min.yaml
+
 window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.zscore_cumreturn_qbin_reader
@@ -71,3 +73,4 @@ train_period:
 val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01
+window_skip: 1

@@ -4,7 +4,7 @@ datamodule:
   datasets:
     train:
       _target_: src.dataset.read_csv_datasets_from_glob
-      globstr: ${dataset_conf.data_path}
+      globstr: ${dataset_conf.data_path.data_path}
       reader: ${dataset_conf.dataset_reader}
       input_columns: ${dataset_conf.input_columns}
       continuous_targets: ${dataset_conf.continuous_targets}
@@ -12,10 +12,11 @@ datamodule:
       start_date: ${dataset_conf.train_period.start}
       end_date: ${dataset_conf.train_period.end}
       window_length: ${dataset_conf.window_length}
+      window_skip: ${dataset_conf.window_skip}
 
     val:
       - _target_: src.dataset.read_csv_datasets_from_glob
-        globstr: ${dataset_conf.data_path}
+        globstr: ${dataset_conf.data_path.data_path}
         reader: ${dataset_conf.dataset_reader}
         input_columns: ${dataset_conf.input_columns}
         continuous_targets: ${dataset_conf.continuous_targets}
@@ -23,6 +24,7 @@ datamodule:
         start_date: ${dataset_conf.val_period.start}
         end_date: ${dataset_conf.val_period.end}
         window_length: ${dataset_conf.window_length}
+        window_skip: ${dataset_conf.window_skip}
 
 
     test:

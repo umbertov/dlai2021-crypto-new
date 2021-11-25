@@ -28,6 +28,7 @@ class DataframeDataset(TensorDataset):
         categorical_targets,
         name,
         window_length=1,
+        window_skip=1,
     ):
         self.dataframe = dataframe
         self.input_columns = input_columns
@@ -38,7 +39,7 @@ class DataframeDataset(TensorDataset):
 
         window_indices = [
             range(i, i + window_length) for i in range(len(dataframe) - window_length)
-        ]
+        ][::window_skip]
         self.window_indices = window_indices
         input_tensors = from_pandas(dataframe[input_columns]).float()[window_indices]
 
