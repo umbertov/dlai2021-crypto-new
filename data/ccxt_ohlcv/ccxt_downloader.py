@@ -7,6 +7,12 @@ from datetime import datetime
 from tqdm.auto import tqdm
 
 
+LIMITS = {
+    "ftx": 5000,
+    "binance": 1000,
+}
+
+
 def timedeltas(start_date, end_date, timeframe="5m", n=5000):
     """
     Args:
@@ -36,6 +42,15 @@ def process_ccxt_ohlcv(ccxt_data: list[list]):
     return df
 
 
+def get_fetch_ohlcv_params(exchange, start_date, end_date):
+    if isinstance(exchange, ccxt.ftx):
+        return {
+            "start_time": datetime_to_seconds(start_date),
+            "end_time": datetime_to_seconds(end_date),
+        }
+    raise NotImplementedError
+
+
 def fetch_multi_ohlcv(
     exchange, symbol, start_date, end_date, timeframe="5m", limit=5000
 ):
@@ -46,10 +61,8 @@ def fetch_multi_ohlcv(
             symbol,
             timeframe=timeframe,
             limit=limit,
-            params={
-                "start_time": datetime_to_seconds(start),
-                "end_time": datetime_to_seconds(end),
-            },
+            since=datetime_to_ms(start),
+            # params=get_fetch_ohlcv_params(exchange, start, end),
         )
         df = process_ccxt_ohlcv(ohlcv)
         dataframes.append(df)
@@ -57,7 +70,11 @@ def fetch_multi_ohlcv(
 
 
 def datetime_to_seconds(dt: datetime):
-    return time.mktime(dt.timetuple())
+    return int(time.mktime(dt.timetuple()))
+
+
+def datetime_to_ms(dt: datetime):
+    return int(time.mktime(dt.timetuple())) * 1000
 
 
 def join_dataframes(ohlcv_dataframes: list[pd.DataFrame]):
@@ -67,13 +84,15 @@ def join_dataframes(ohlcv_dataframes: list[pd.DataFrame]):
     return df
 
 
-def csv_filename(symbol, start_date, end_date):
+def csv_filename(symbol, start_date, end_date, exchange_name):
     start_date = start_date.strftime("%Y-%m-%d")
     end_date = end_date.strftime("%Y-%m-%d")
-    return Path(f"{symbol}.{start_date}.{end_date}.csv")
+    if "/" in symbol:
+        symbol = "-".join(symbol.split("/"))
+    return Path(f"{symbol}.{exchange_name}.{start_date}.{end_date}.csv")
 
 
-SymbolData = namedtuple("SymbolData", ["name", "dataframe", "path"])
+SymbolData = namedtuple("SymbolData", ["name", "dataframe", "path", "exchange"])
 
 
 def download_symbol(
@@ -86,16 +105,18 @@ def download_symbol(
     limit=5000,
     save=False,
 ) -> SymbolData:
+    exchange_name = type(exchange).__name__
+
     ohlcv_dataframes = fetch_multi_ohlcv(
         exchange, symbol, start_date, end_date, timeframe, limit=limit
     )
     df = join_dataframes(ohlcv_dataframes)
 
-    csv_path = destdir / csv_filename(symbol, start_date, end_date)
+    csv_path = destdir / csv_filename(symbol, start_date, end_date, exchange_name)
 
-    if save and "y" in input(f"\nSave this to {csv_path}? [yN]"):
+    if save:
         df.to_csv(str(csv_path))
-    return SymbolData(name=symbol, dataframe=df, path=csv_path)
+    return SymbolData(name=symbol, dataframe=df, path=csv_path, exchange=exchange_name)
 
 
 def download_symbols(symbols: list[str], **kwargs) -> list[SymbolData]:
@@ -106,7 +127,7 @@ def download_symbols(symbols: list[str], **kwargs) -> list[SymbolData]:
     if save:
         for symbol_data in symbols_data:
             print(f"saving {symbol_data.name} to {symbol_data.path}...")
-            # symbol_data.dataframe.to_csv(str(symbol_data.path))
+            symbol_data.dataframe.to_csv(str(symbol_data.path))
     return symbols_data
 
 
@@ -116,6 +137,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--symbol", default="BTC-PERP")
     parser.add_argument("--destdir", default=".", type=str)
+    parser.add_argument("--exchange", default="ftx", type=str)
     args = parser.parse_args()
 
     START_DATE, END_DATE = datetime(2019, 7, 22), datetime(2021, 11, 23)
@@ -124,7 +146,14 @@ if __name__ == "__main__":
     DESTDIR = Path(args.destdir)
     assert DESTDIR.exists() and DESTDIR.is_dir()
 
-    ftx = ccxt.ftx({"enableRateLimit": True})
+    exchange = getattr(ccxt, args.exchange)({"enableRateLimit": True})
     symbol_data = download_symbol(
-        ftx, SYMBOL, START_DATE, END_DATE, TIMEFRAME, DESTDIR, 5000, save=True
+        exchange,
+        SYMBOL,
+        START_DATE,
+        END_DATE,
+        TIMEFRAME,
+        DESTDIR,
+        limit=LIMITS[args.exchange],
+        save=True,
     )
