@@ -9,10 +9,10 @@ pl_trainer:
   gpus: 1
   precision: 32
   #max_steps: 10000
-  max_epochs: 100
+  max_epochs: 50
   accumulate_grad_batches: 1
   num_sanity_val_steps: 2
-  gradient_clip_val: 10.0
+  gradient_clip_val: 1.0
 
 monitor_metric: 'val/loss'
 monitor_metric_mode: 'min'
@@ -24,3 +24,8 @@ early_stopping:
 model_checkpoints:
   save_top_k: 2
   verbose: False
+
+stochastic_weight_averaging:
+  active: False
+  swa_epoch_start: 3
+

@@ -12,6 +12,7 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
     ModelCheckpoint,
+    StochasticWeightAveraging,
 )
 from pytorch_lightning.loggers import WandbLogger
 
@@ -49,6 +50,17 @@ def build_callbacks(cfg: DictConfig) -> List[Callback]:
                 mode=cfg.train.monitor_metric_mode,
                 save_top_k=cfg.train.model_checkpoints.save_top_k,
                 verbose=cfg.train.model_checkpoints.verbose,
+            )
+        )
+
+    if (
+        "stochastic_weight_averaging" in cfg.train
+        and cfg.train.stochastic_weight_averaging.active
+    ):
+        hydra.utils.log.info(f"Adding callback <StochasticWeightAveraging>")
+        callbacks.append(
+            StochasticWeightAveraging(
+                swa_epoch_start=cfg.train.stochastic_weight_averaging.swa_epoch_start
             )
         )
 
@@ -147,6 +159,9 @@ def run(cfg: DictConfig) -> None:
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
 def main(cfg: omegaconf.DictConfig):
+    import torch
+
+    torch.autograd.set_detect_anomaly(True)
     run(cfg)
 
 

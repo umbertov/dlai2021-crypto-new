@@ -11,7 +11,7 @@
 # for example:
 dataset_conf:
   data_path:
-    data_path: "/home/umberto/workspace/git/dlai2021-stonks-new/data/ftx_ohlcv/BTC*.csv"
+    data_path: "/home/umberto/workspace/git/dlai2021-stonks-new/data/ccxt_ohlcv/BTC*.csv"
   train_period:
     start: 2019-07-22
     end:   2021-10-01

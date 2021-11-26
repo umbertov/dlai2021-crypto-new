@@ -50,6 +50,15 @@ def ColumnTrasnformer(function, name=None):
     return Transformation
 
 
+def AddColumns(column_dictionary):
+    def f(df):
+        for colname, function in column_dictionary.items():
+            df[colname] = function(df)
+        return df
+
+    return f
+
+
 def DataframeTransformer(function, **f_kwargs):
     return lambda *args, **kwargs: lambda df: function(df, *args, **f_kwargs, **kwargs)
 
@@ -84,6 +93,9 @@ LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
 Sma = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
     col
 )
+Std = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).std(), name=f"Std{n}")(
+    col
+)
 RollingSum = ColumnTrasnformer(lambda col, window: col.rolling(window).sum())
 RollingMin = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
 RollingMax = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
@@ -97,8 +109,8 @@ RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna(), name="RSI")
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0):
     mean = df.rolling(period).mean()
-    std = stddev_mult * df.rolling(period).std()
-    return (df - mean) / std
+    std = 1e-30 + stddev_mult * df.rolling(period).std()
+    return ((df - mean) / std).ffill()
 
 
 def ZScoreNormalize(
@@ -121,7 +133,7 @@ def Diff(col1, col2, logarithmic=False):
         dataframe[target_column] = dataframe[col1] - dataframe[col2]
         if logarithmic:
             dataframe[target_column] = np.log(
-                1 + (dataframe[target_column] / dataframe[col2])
+                (dataframe[target_column] / (1e-30 + dataframe[col2]))
             )
         return dataframe
 
@@ -335,8 +347,24 @@ feature_set_1 = Compose(
     features_from_1h,
 )
 
+future_mean_std_target = AddColumns(
+    {
+        "FutureMean": lambda df: df.Open.rolling(10).mean().shift(-10),
+        "FutureStd": lambda df: df.Open.rolling(10).std().shift(-10),
+    }
+)
 
-example_reader = lambda: lambda df: Compose(
+feature_set_2 = Compose(
+    Sma("Open", 9),
+    Std("Open", 9),
+    Sma("Open", 26),
+    Std("Open", 26),
+    future_mean_std_target,
+)
+
+feature_set_2_reader = lambda: Compose(read_yfinance_dataframe, feature_set_2, Strip())
+
+example_reader = lambda: Compose(
     read_yfinance_dataframe,
     feature_set_1,
     returns_target(),
@@ -345,7 +373,7 @@ example_reader = lambda: lambda df: Compose(
     zscore_normalize_target(period=200),
     Strip(),
     DebugIfNan(),
-)(df)
+)
 
 
 qbin_reader = lambda q: Compose(
@@ -408,6 +436,7 @@ zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
     zscore_normalize_reader(normalize_colnames, period=100),
     zscore_normalize_reader(normalize_colnames, period=200),
     Strip(),
+    # lambda df: df.ffill(),
     DebugIfEmpty,
 )
 
@@ -418,6 +447,8 @@ zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
     zscore_normalize_reader(normalize_colnames, period=100),
     zscore_normalize_reader(normalize_colnames, period=200),
     Strip(),
+    DebugIfNan(),
+    # lambda df: df.ffill(),
     DebugIfEmpty,
 )
 

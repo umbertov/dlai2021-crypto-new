@@ -5,7 +5,7 @@ window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.zscore_reader_qbins
   q:
-    2
+    3
   normalize_colnames: 
     - Open
     - Log(PctChange(Open))

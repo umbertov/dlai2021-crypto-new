@@ -1,3 +1,4 @@
+
 # @package _global_
 # override entire defaults using absolute paths (starting from conf root)
 # defaults:
@@ -9,11 +10,11 @@
 # specifying its absolute path in yaml
 # for example:
 dataset_conf:
-  data_path: 
-    data_path: "/home/umberto/workspace/git/dlai2021-stonks-new/data/yahoofinance_crypto/joined*"
+  data_path:
+    data_path: "/home/umberto/workspace/git/dlai2021-stonks-new/data/ccxt_ohlcv/*.csv"
   train_period:
-    start: 2021-08-30
-    end:   2021-11-12
+    start: 2019-07-22
+    end:   2021-10-01
   val_period:
     start: ${dataset_conf.train_period.end}
     end:   2021-11-23

@@ -51,13 +51,20 @@ class TimeSeriesModule(pl.LightningModule):
         )
         self.flatten_input = kwargs.get("flatten_input", True)
 
-        self.classification_loss_fn = hydra.utils.instantiate(
-            self.hparams.classification_loss_fn
-        )
-        self.reconstruction_loss_fn = hydra.utils.instantiate(
-            self.hparams.reconstruction_loss_fn,
-            _recursive_=True,
-        )
+        if "classification_loss_fn" in self.hparams:
+            self.classification_loss_fn = hydra.utils.instantiate(
+                self.hparams.classification_loss_fn
+            )
+        if "reconstruction_loss_fn" in self.hparams:
+            self.reconstruction_loss_fn = hydra.utils.instantiate(
+                self.hparams.reconstruction_loss_fn,
+                _recursive_=True,
+            )
+        if "regression_loss_fn" in self.hparams:
+            self.regression_loss_fn = hydra.utils.instantiate(
+                self.hparams.regression_loss_fn,
+                _recursive_=True,
+            )
 
     def forward(
         self,
@@ -65,13 +72,27 @@ class TimeSeriesModule(pl.LightningModule):
         continuous_targets: torch.Tensor = None,
         categorical_targets: torch.Tensor = None,
     ):
+        if any(p.isnan().any().item() for p in self.parameters()):
+            import ipdb
+
+            ipdb.set_trace()
+        if inputs.isnan().any().item():
+            return None
+
         model_out = self.model(inputs)
         classification_logits = model_out.get("classification_logits", None)
+        regression_output = model_out.get("regression", None)
         reconstruction = model_out.get("reconstruction", None)
 
         out = dict()
 
-        if reconstruction is not None and continuous_targets is not None:
+        if regression_output is not None:
+            regression_loss = self.regression_loss_fn(
+                regression_output.view(-1), continuous_targets.view(-1)
+            )
+            out.update({"reg_loss": regression_loss})
+
+        if reconstruction is not None:
             reconstruction_loss = (
                 self.hparams.reconstruction_loss_weight  # type: ignore
                 * self.reconstruction_loss_fn(reconstruction.view(-1), inputs.view(-1))
@@ -79,8 +100,6 @@ class TimeSeriesModule(pl.LightningModule):
             out.update(
                 {
                     "rec_loss": reconstruction_loss,
-                    "continuous_targets": continuous_targets,
-                    "loss": reconstruction_loss,
                     "reconstruction": reconstruction,
                 }
             )
@@ -97,7 +116,6 @@ class TimeSeriesModule(pl.LightningModule):
                 {
                     "clf_loss": classification_loss,
                     "categorical_targets": categorical_targets,
-                    "loss": out.get("rec_loss", 0) + classification_loss,
                     "accuracy": compute_accuracy(
                         classification_logits,
                         categorical_targets.view(-1),
@@ -107,10 +125,31 @@ class TimeSeriesModule(pl.LightningModule):
                 }
             )
 
+        out["loss"] = torch.stack(
+            [value for key, value in out.items() if key.endswith("_loss")]
+        ).sum()
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
+
+    def on_after_backward(self, *args, **kwargs):
+        # nan params
+        if any(p.isnan().any().item() for p in self.parameters()):
+            import ipdb
+
+            ipdb.set_trace()
+        # nan gradients
+        if any(
+            p.grad.isnan().any().item() for p in self.parameters() if p.grad is not None
+        ):
+            import ipdb
+
+            ipdb.set_trace()
+        return super().on_after_backward(*args, **kwargs)
 
     def training_step(self, batch, batch_idx):
         step_result = self.forward(*batch)
+        if step_result is None or step_result["loss"].isnan().item():
+            self.zero_grad()
+            return None
         metrics = {
             "train/loss": step_result["loss"],
         }
@@ -125,6 +164,9 @@ class TimeSeriesModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         step_result = self.forward(*batch)
+        if step_result is None or step_result["loss"].isnan().item():
+            self.zero_grad()
+            return None
         metrics = {
             "val/loss": step_result["loss"],
         }
@@ -176,14 +218,25 @@ class TimeSeriesModule(pl.LightningModule):
             self.logger.experiment.log({"val/confusion_matrix": confusion_matrix_plot})
 
     def _confusion_matrix_plot(self, step_outputs):
+        assert step_outputs
         # Log confusion matrix for the training data
         confusion_matrix = (
             compute_confusion_matrix(
                 torch.cat(
-                    [step["classification_logits"] for step in step_outputs], dim=0
+                    [
+                        step["classification_logits"]
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
                 ),
                 torch.cat(
-                    [step["categorical_targets"] for step in step_outputs], dim=0
+                    [
+                        step["categorical_targets"]
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
                 ),
                 n_classes=self.hparams.model.n_classes,
             )

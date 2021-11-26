@@ -12,6 +12,9 @@ LIMITS = {
     "binance": 1000,
 }
 
+START_DATE, END_DATE = datetime(2019, 7, 22), datetime(2021, 11, 23)
+TIMEFRAME = "5m"
+
 
 def timedeltas(start_date, end_date, timeframe="5m", n=5000):
     """
@@ -140,8 +143,6 @@ if __name__ == "__main__":
     parser.add_argument("--exchange", default="ftx", type=str)
     args = parser.parse_args()
 
-    START_DATE, END_DATE = datetime(2019, 7, 22), datetime(2021, 11, 23)
-    TIMEFRAME = "5m"
     SYMBOL = args.symbol
     DESTDIR = Path(args.destdir)
     assert DESTDIR.exists() and DESTDIR.is_dir()

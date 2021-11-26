@@ -111,7 +111,7 @@ class MyDataModule(pl.LightningDataModule):
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
 def main(conf: omegaconf.DictConfig):
-    global datamodule, cfg
+    global datamodule, cfg, model
     cfg = conf.copy()
     datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
     datamodule.setup()
@@ -121,11 +121,18 @@ def main(conf: omegaconf.DictConfig):
         # logging=cfg.logging,
         _recursive_=False,
     )
-    ins, cont, cat = next(iter(datamodule.train_dataloader()))
-    model(ins, categorical_targets=cat)
+    ins, *targets = next(iter(datamodule.train_dataloader()))
+    if len(targets) == 2:
+        cont, cat = targets
+    elif targets[0].dtype == torch.float32:
+        cont, cat = targets[0], None
+    else:
+        cat, cont = targets[0], None
+    model(ins, categorical_targets=cat, continuous_targets=cont)
 
 
 if __name__ == "__main__":
     datamodule = None
     cfg = None
+    model = None
     main()
