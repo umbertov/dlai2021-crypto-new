@@ -1,6 +1,7 @@
 from einops.einops import rearrange
 import torch
 from torch import nn
+import torch.nn.init as I
 from torch.nn import functional as F
 
 from typing import Optional
@@ -17,6 +18,95 @@ def NonLinear(
         nn.Dropout(dropout),
         activation,
     )
+
+
+def init_gru(cell, gain=1):
+    cell.reset_parameters()
+
+    # orthogonal initialization of recurrent weights
+    for _, hh, _, _ in cell.all_weights:
+        for i in range(0, hh.size(0), cell.hidden_size):
+            I.orthogonal(hh[i : i + cell.hidden_size], gain=gain)
+
+
+def init_lstm(cell, gain=1):
+    init_gru(cell, gain)
+
+    # positive forget gate bias (Jozefowicz et al., 2015)
+    for _, _, ih_b, hh_b in cell.all_weights:
+        l = len(ih_b)
+        ih_b[l // 4 : l // 2].data.fill_(1.0)
+        hh_b[l // 4 : l // 2].data.fill_(1.0)
+
+
+class SinePositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super(SinePositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        # pe.requires_grad = False
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        return x + self.pe[: x.size(0), :]
+
+
+class CausalTransformer(nn.Module):
+    def __init__(
+        self,
+        feature_size=256,
+        num_layers=1,
+        n_heads=4,
+        dropout=0.1,
+        prediction_head=None,
+    ):
+        super(CausalTransformer, self).__init__()
+        self.src_mask = None
+        self.pos_encoder = SinePositionalEncoding(feature_size)
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model=feature_size, nhead=n_heads, dropout=dropout
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            self.encoder_layer, num_layers=num_layers
+        )
+        if not prediction_head:
+            self.decoder = nn.Linear(feature_size, 1)
+        else:
+            self.decoder = prediction_head
+        self.init_weights()
+
+    def init_weights(self):
+        if isinstance(self.decoder, nn.Linear):
+            initrange = 0.1
+            self.decoder.bias.data.zero_()
+            self.decoder.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, src):
+        if self.src_mask is None or self.src_mask.size(0) != len(src):
+            device = src.device
+            mask = self._generate_square_subsequent_mask(len(src)).to(device)
+            self.src_mask = mask
+
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src, self.src_mask)
+        output = self.decoder(output)
+        return output
+
+    def _generate_square_subsequent_mask(self, sz):
+        """Upper triangular attention mask to enforce causal attention"""
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = (
+            mask.float()
+            .masked_fill(mask == 0, float("-inf"))
+            .masked_fill(mask == 1, float(0.0))
+        )
+        return mask
 
 
 class DictEmbedder(nn.Module):
@@ -92,6 +182,7 @@ class LstmModel(nn.Module):
             dropout=dropout,
             bidirectional=False,
         )
+        init_lstm(self.lstm)
         self.out_dim = self.window_length * self.hidden_size
 
     def forward(self, x):
@@ -184,3 +275,24 @@ class ClassifierWithAutoEncoder(nn.Module):
             "classification_logits": predictions,
             "reconstruction": reconstruction,
         }
+
+
+class Regressor(nn.Module):
+    def __init__(
+        self,
+        feature_extractor: SimpleFeedForward,
+        n_outputs: int,
+        feature_dim: Optional[int] = None,
+    ):
+        super().__init__()
+        feature_dim = (
+            feature_dim if feature_dim is not None else feature_extractor.out_dim
+        )
+        self.feature_extractor = feature_extractor
+        self.n_outputs = n_outputs
+        self.feature_dim = feature_dim
+        self.decoder = nn.Linear(feature_dim, n_outputs)
+
+    def forward(self, x):
+        features = self.feature_extractor(x)
+        return {"regression_output": self.decoder(features)}

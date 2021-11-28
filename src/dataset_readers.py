@@ -354,11 +354,32 @@ future_mean_std_target = AddColumns(
     }
 )
 
+ohlc4 = lambda df: (df.Open + df.Close + df.High + df.Low) / 4
+
+
+def NormOHLC4(columns):
+    return AddColumns(
+        {f"NormOHLC4({col})": lambda df: (df[col]) / (ohlc4(df)) for col in columns}
+    )
+
+
 feature_set_2 = Compose(
     Sma("Open", 9),
     Std("Open", 9),
     Sma("Open", 26),
     Std("Open", 26),
+    NormOHLC4(
+        [
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Sma9(Open)",
+            "Std9(Open)",
+            "Sma26(Open)",
+            "Std26(Open)",
+        ]
+    ),
     future_mean_std_target,
 )
 

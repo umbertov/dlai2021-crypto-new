@@ -1,8 +1,8 @@
 _target_: src.lit_models.TimeSeriesModule
 name: lstm
 model:
-  _target_: src.models.Classifier
-  n_classes: ${dataset_conf.n_classes}
+  _target_: src.models.Regressor
+  n_outputs: ${length:${dataset_conf.continuous_targets}}
   feature_extractor:
     _target_: src.models.LstmMLP
     lstm:
@@ -15,15 +15,15 @@ model:
       _target_: src.models.SimpleFeedForward
       in_size: ${model.model.feature_extractor.lstm.hidden_size}
       window_length: ${dataset_conf.window_length}
-      hidden_sizes: [100,50]
+      hidden_sizes: [64,32]
       activation:
         _target_: ${model.activation}
       dropout:
         ${model.dropout}
       flatten_input: ${model.flatten_input}
 classification_loss_fn:
-  _target_: torch.nn.CrossEntropyLoss
 regression_loss_fn:
+  _target_: torch.nn.MSELoss
 reconstruction_loss_fn:
 reconstruction_loss_weight:
   1

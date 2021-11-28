@@ -51,20 +51,17 @@ class TimeSeriesModule(pl.LightningModule):
         )
         self.flatten_input = kwargs.get("flatten_input", True)
 
-        if "classification_loss_fn" in self.hparams:
-            self.classification_loss_fn = hydra.utils.instantiate(
-                self.hparams.classification_loss_fn
-            )
-        if "reconstruction_loss_fn" in self.hparams:
-            self.reconstruction_loss_fn = hydra.utils.instantiate(
-                self.hparams.reconstruction_loss_fn,
-                _recursive_=True,
-            )
-        if "regression_loss_fn" in self.hparams:
-            self.regression_loss_fn = hydra.utils.instantiate(
-                self.hparams.regression_loss_fn,
-                _recursive_=True,
-            )
+        self.classification_loss_fn = hydra.utils.instantiate(
+            self.hparams.classification_loss_fn
+        )
+        self.reconstruction_loss_fn = hydra.utils.instantiate(
+            self.hparams.reconstruction_loss_fn,
+            _recursive_=True,
+        )
+        self.regression_loss_fn = hydra.utils.instantiate(
+            self.hparams.regression_loss_fn,
+            _recursive_=True,
+        )
 
     def forward(
         self,
@@ -81,7 +78,7 @@ class TimeSeriesModule(pl.LightningModule):
 
         model_out = self.model(inputs)
         classification_logits = model_out.get("classification_logits", None)
-        regression_output = model_out.get("regression", None)
+        regression_output = model_out.get("regression_output", None)
         reconstruction = model_out.get("reconstruction", None)
 
         out = dict()
