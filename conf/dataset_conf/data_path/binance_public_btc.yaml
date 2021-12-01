@@ -1,0 +1,2 @@
+data_path:
+  - ${oc.env:PROJECT_ROOT}/data/binance-public-data/python/data/spot/monthly/klines/BTC*/*/*.csv

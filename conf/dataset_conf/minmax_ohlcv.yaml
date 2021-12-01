@@ -1,0 +1,24 @@
+defaults:
+  - data_path: yahoofinance5min.yaml
+
+window_length: 1
+dataset_reader:
+  _target_: src.dataset_readers.minmax_reader
+
+input_columns:
+  - MinMax(Open)
+  - MinMax(High)
+  - MinMax(Low)
+  - MinMax(Close)
+continuous_targets:
+  - FutureClose
+categorical_targets:
+  #  - TargetCategorical
+n_classes: 3
+train_period:
+  start: 2021-05-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01
+window_skip: 1

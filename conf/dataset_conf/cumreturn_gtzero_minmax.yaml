@@ -1,0 +1,37 @@
+
+defaults:
+  - data_path: yahoofinance5min.yaml
+
+window_length: 1
+dataset_reader:
+  _target_: src.dataset_readers.zscore_cumreturn_gtzero_reader
+  normalize_colnames: 
+    - Open
+    - Log(PctChange(Open))
+    - Log(PctChange(Sma9(Open)))
+    - Log(Open - Sma9(Open))
+    - Log(PctChange(Sma12(Open)))
+    - Log(Open - Sma12(Open))
+    - Log(PctChange(Sma26(Open)))
+    - Log(Open - Sma26(Open))
+    - LogCumReturn12(Open)
+    - LogCumReturn48(Open)
+    - LogCumReturn488(Open)
+input_columns:
+  - MinMax(Open)
+  - MinMax(High)
+  - MinMax(Low)
+  - MinMax(Close)
+
+continuous_targets:
+  - TargetNormed
+categorical_targets:
+  - TargetCategorical
+n_classes: 2
+train_period:
+  start: 2021-05-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01
+window_skip: 1

@@ -19,11 +19,11 @@ monitor_metric_mode: 'min'
 
 early_stopping:
   patience: 5
-  verbose: True
+  verbose: False
 
 model_checkpoints:
   save_top_k: 2
-  verbose: False
+  verbose: True
 
 stochastic_weight_averaging:
   active: False

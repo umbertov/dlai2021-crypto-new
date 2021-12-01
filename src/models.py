@@ -4,7 +4,14 @@ from torch import nn
 import torch.nn.init as I
 from torch.nn import functional as F
 
-from typing import Optional
+from typing import Callable, Optional
+from einops.layers.torch import Rearrange
+
+
+class LambdaLayer(nn.Module):
+    def __init__(self, f: Callable):
+        super().__init__()
+        self.forward = f
 
 
 def NonLinear(
@@ -14,9 +21,12 @@ def NonLinear(
     dropout: float = 0.0,
 ) -> nn.Module:
     return nn.Sequential(
-        nn.Linear(in_size, hidden_size),
+        nn.Linear(in_size, hidden_size, bias=False),
         nn.Dropout(dropout),
         activation,
+        Rearrange("batch seqlen channels -> batch channels seqlen"),
+        nn.BatchNorm1d(hidden_size),
+        Rearrange("batch channels seqlen -> batch seqlen channels"),
     )
 
 
@@ -197,10 +207,20 @@ class LstmMLP(nn.Module):
         self.lstm = lstm
         self.mlp = mlp
         self.model = nn.Sequential(lstm, mlp)
+        self.in_size = self.lstm.in_size
         self.out_dim = self.mlp.out_dim
 
     def forward(self, x):
         return self.model(x)
+
+
+class FeatureScaler(nn.Module):
+    def __init__(self, in_size):
+        super().__init__()
+        self.factors = nn.Parameter(torch.ones(in_size), requires_grad=True)
+
+    def forward(self, x):
+        return x * self.factors
 
 
 class AutoEncoder(nn.Module):
@@ -246,10 +266,16 @@ class Classifier(nn.Module):
         feature_extractor: SimpleFeedForward,
         n_classes: int,
         feature_dim: Optional[int] = None,
+        use_feature_scaler=False,
     ):
         super().__init__()
         feature_dim = (
             feature_dim if feature_dim is not None else feature_extractor.out_dim
+        )
+        self.feature_scaler = (
+            FeatureScaler(feature_extractor.in_size)
+            if use_feature_scaler
+            else nn.Identity()
         )
         self.feature_extractor = feature_extractor
         self.n_classes = n_classes
@@ -257,18 +283,25 @@ class Classifier(nn.Module):
         self.classifier = nn.Linear(feature_dim, n_classes)
 
     def forward(self, x):
+        x = self.feature_scaler(x)
         features = self.feature_extractor(x)
         return {"classification_logits": self.classifier(features)}
 
 
 class ClassifierWithAutoEncoder(nn.Module):
-    def __init__(self, autoencoder: AutoEncoder, n_classes: int):
+    def __init__(
+        self, autoencoder: AutoEncoder, n_classes: int, use_feature_scaler=False
+    ):
         super().__init__()
+        self.feature_scaler = (
+            FeatureScaler(autoencoder.in_size) if use_feature_scaler else nn.Identity()
+        )
         self.autoencoder = autoencoder
         self.n_classes = n_classes
         self.classifier = nn.Linear(autoencoder.hidden_sizes[-1], n_classes)
 
     def forward(self, x):
+        x = self.feature_scaler(x)
         encoded, reconstruction = self.autoencoder(x)
         predictions = self.classifier(encoded)
         return {
@@ -283,10 +316,16 @@ class Regressor(nn.Module):
         feature_extractor: SimpleFeedForward,
         n_outputs: int,
         feature_dim: Optional[int] = None,
+        use_feature_scaler=False,
     ):
         super().__init__()
         feature_dim = (
             feature_dim if feature_dim is not None else feature_extractor.out_dim
+        )
+        self.feature_scaler = (
+            FeatureScaler(feature_extractor.in_size)
+            if use_feature_scaler
+            else nn.Identity()
         )
         self.feature_extractor = feature_extractor
         self.n_outputs = n_outputs
@@ -294,5 +333,6 @@ class Regressor(nn.Module):
         self.decoder = nn.Linear(feature_dim, n_outputs)
 
     def forward(self, x):
+        x = self.feature_scaler(x)
         features = self.feature_extractor(x)
         return {"regression_output": self.decoder(features)}

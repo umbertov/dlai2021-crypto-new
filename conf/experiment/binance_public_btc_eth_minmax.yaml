@@ -1,0 +1,17 @@
+
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+# defaults:
+#   - override /data: nifty50.yaml
+#   - override /model: praxis_univariate.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+
+dataset_conf/data_path: binance_public_btc_eth
+dataset_conf:
+  train_period:
+    start: 2017-01-01
+    end: 2021-01-01

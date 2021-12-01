@@ -3,6 +3,7 @@ name: lstm
 model:
   _target_: src.models.Regressor
   n_outputs: ${length:${dataset_conf.continuous_targets}}
+  use_feature_scaler: False
   feature_extractor:
     _target_: src.models.LstmMLP
     lstm:

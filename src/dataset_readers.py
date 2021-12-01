@@ -3,7 +3,7 @@ import numpy as np
 from typing import Callable, Optional, Tuple
 from ta.momentum import RSIIndicator
 
-from common.utils import get_hydra_cfg
+from src.common.utils import get_hydra_cfg
 
 DEBUG = True
 
@@ -18,11 +18,43 @@ class EmptyDataFrame(Exception):
     pass
 
 
+import os
+
+
+def try_read_dataframe(*readers):
+    def reader(path):
+        dataframe = None
+        for candidate_reader in readers:
+            try:
+                dataframe = candidate_reader(path)
+            except pd.errors.EmptyDataError as e:
+                with open(path, "r") as f:
+                    print("path:", path)
+                    print(f.read())
+            except ValueError as e:
+                continue
+            if dataframe is not None:
+                return dataframe
+        raise EmptyDataFrame
+
+    return reader
+
+
+def read_binance_klines_dataframe(path: str) -> pd.DataFrame:
+    dataframe: pd.DataFrame = pd.read_csv(path).iloc[:, [0, 1, 2, 3, 4, 5]]
+    dataframe.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    dataframe.index = pd.to_datetime(dataframe["Date"], utc=True, unit="ms")
+    dataframe.drop("Date", inplace=True, axis="columns")
+    return dataframe
+
+
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
     try:
         dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
     except ValueError:
         dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Datetime"]).rename(columns={"Datetime": "Date"})  # type: ignore
+    except EmptyDataError:
+        raise EmptyDataFrame
     dataframe.index = pd.to_datetime(dataframe["Date"], utc=True)
     dataframe.drop("Date", inplace=True, axis="columns")
     return dataframe
@@ -133,7 +165,7 @@ def Diff(col1, col2, logarithmic=False):
         dataframe[target_column] = dataframe[col1] - dataframe[col2]
         if logarithmic:
             dataframe[target_column] = np.log(
-                (dataframe[target_column] / (1e-30 + dataframe[col2]))
+                1 + (dataframe[target_column] / dataframe[col2])
             )
         return dataframe
 
@@ -383,10 +415,14 @@ feature_set_2 = Compose(
     future_mean_std_target,
 )
 
-feature_set_2_reader = lambda: Compose(read_yfinance_dataframe, feature_set_2, Strip())
+feature_set_2_reader = lambda: Compose(
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    feature_set_2,
+    Strip(),
+)
 
 example_reader = lambda: Compose(
-    read_yfinance_dataframe,
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     feature_set_1,
     returns_target(),
     bin_target(bins=[0.0, 0.999, 1.001, float("inf")]),
@@ -398,7 +434,7 @@ example_reader = lambda: Compose(
 
 
 qbin_reader = lambda q: Compose(
-    read_yfinance_dataframe,
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     feature_set_1,
     logreturns_target(),
     qbin_column("Target", q=q),
@@ -409,7 +445,7 @@ qbin_reader = lambda q: Compose(
 
 
 qbin_cumreturn_reader = lambda q: Compose(
-    read_yfinance_dataframe,
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     feature_set_1,
     cumlogreturn_target(5),
     qbin_column("Target", q=q),
@@ -420,15 +456,35 @@ qbin_cumreturn_reader = lambda q: Compose(
 
 
 bin_cumreturn_reader = lambda bins: Compose(
-    read_yfinance_dataframe,
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     feature_set_1,
     cumlogreturn_target(5),
     bin_column("Target", bins=bins),
-    zscore_normalize_target(period=50),
+    zscore_normalize_target(period=10),
     Strip(),
     DebugIfNan(),
 )
 
+
+def minmax_scale_df(df):
+    low, high = df.min(), df.max()
+    return (df - low) / (high - low)
+
+
+MinMaxScaler = ColumnTrasnformer(minmax_scale_df, name="MinMax")
+
+minmax_ohlcv = Compose(
+    MinMaxScaler("Open"),
+    MinMaxScaler("High"),
+    MinMaxScaler("Low"),
+    MinMaxScaler("Close"),
+)
+
+minmax_reader = lambda: Compose(
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    minmax_ohlcv,
+    Shift("MinMax(Close)", target_column="FutureClose"),
+)
 
 zscore_reader = lambda normalize_colnames: Compose(
     example_reader,
@@ -463,6 +519,7 @@ zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
 
 zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
     bin_cumreturn_reader(bins=GTZERO_BINS),
+    minmax_ohlcv,
     zscore_normalize_reader(normalize_colnames, period=20),
     zscore_normalize_reader(normalize_colnames, period=50),
     zscore_normalize_reader(normalize_colnames, period=100),

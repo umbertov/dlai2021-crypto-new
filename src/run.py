@@ -92,6 +92,7 @@ def run(cfg: DictConfig) -> None:
 
     # Hydra run directory
     hydra_dir = Path(HydraConfig.get().run.dir)
+    hydra.utils.log.info(f"Hydra Run Dir is: {hydra_dir}")
 
     # Instantiate datamodule
     hydra.utils.log.info(f"Instantiating <{cfg.data.datamodule._target_}>")
@@ -146,8 +147,11 @@ def run(cfg: DictConfig) -> None:
     )
     log_hyperparameters(trainer=trainer, model=model, cfg=cfg)
 
-    hydra.utils.log.info(f"Starting training!")
-    trainer.fit(model=model, datamodule=datamodule)
+    try:
+        hydra.utils.log.info(f"Starting training!")
+        trainer.fit(model=model, datamodule=datamodule)
+    except KeyboardInterrupt:
+        pass
 
     # hydra.utils.log.info(f"Starting testing!")
     # trainer.test(model=model, datamodule=datamodule)
@@ -159,9 +163,6 @@ def run(cfg: DictConfig) -> None:
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
 def main(cfg: omegaconf.DictConfig):
-    import torch
-
-    torch.autograd.set_detect_anomaly(True)
     run(cfg)
 
 

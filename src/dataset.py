@@ -37,9 +37,13 @@ class DataframeDataset(TensorDataset):
         self.name = name
         self.window_length = window_length
 
-        window_indices = [
-            range(i, i + window_length) for i in range(len(dataframe) - window_length)
-        ][::window_skip]
+        window_indices = torch.tensor(
+            [
+                range(i, i + window_length)
+                for i in range(len(dataframe) - window_length)
+            ][::window_skip],
+            dtype=torch.long,
+        )
         self.window_indices = window_indices
         input_tensors = from_pandas(dataframe[input_columns]).float()[window_indices]
 
@@ -106,12 +110,17 @@ def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
     return ConcatDataset([i for i in datasets if i is not None])
 
 
-def read_csv_datasets_from_glob(globstr: str, *args, **kwargs) -> Dataset:
+def read_csv_datasets_from_glob(
+    globstr: Union[str, list[str]], *args, **kwargs
+) -> Dataset:
     """Same args as `read_csv_datasets`, except for taking a `globstr` argument
     instead of `paths`.
     `globstr` is a glob pattern used to match filenames.
     """
-    paths = list(glob(globstr))
+    if isinstance(globstr, str):
+        paths = list(glob(globstr))
+    else:
+        paths = [path for pattern in globstr for path in glob(pattern)]
     return read_csv_datasets(paths, *args, **kwargs)
 
 
@@ -120,7 +129,7 @@ if __name__ == "__main__":
 
     dataset = read_csv_datasets_from_glob(
         "./data/yahoofinance_crypto/*.csv",
-        example_features,
+        reader=example_features,
         input_columns=[
             "Log(PctChange(Close))",
             "Log(PctChange(Sma9(Close)))",

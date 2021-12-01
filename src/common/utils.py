@@ -8,7 +8,84 @@ import pytorch_lightning as pl
 import torch
 import pytorch_lightning as pl
 from omegaconf import DictConfig, OmegaConf
-from hydra import compose, initialize
+import hydra
+from hydra.core.global_hydra import GlobalHydra
+from hydra.experimental import compose
+
+
+def try_or_default(f, default=None, exception=Exception):
+    def apply(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except exception:
+            return None
+
+    return apply
+
+
+def get_hydra_cfg(config_path=None, overrides=[]):
+    GlobalHydra.instance().clear()
+    if config_path is None:
+        config_path = str(PROJECT_ROOT / "conf")
+    hydra.initialize_config_dir(config_dir=config_path)
+    cfg = hydra.compose(config_name="default", overrides=overrides)
+    return cfg
+
+
+# def get_hydra_cfg(config_name: str = "default", overrides=[]) -> DictConfig:
+#     """
+#     Instantiate and return the hydra config -- streamlit and jupyter compatible
+#
+#     Args:
+#         config_name: .yaml configuration name, without the extension
+#
+#     Returns:
+#         The desired omegaconf.DictConfig
+#     """
+#     register_custom_resolvers()
+#     GlobalHydra.instance().clear()
+#     hydra.experimental.initialize_config_dir(config_dir=config_path)
+#     return compose(config_name='default, overrides=overrides)
+
+
+def get_datasets(cfg: DictConfig):
+    train_dataset, val_dataset = hydra.utils.instantiate(
+        cfg.data.datamodule.datasets, _recursive_=True
+    )
+    return train_dataset, val_dataset
+
+
+def get_model(cfg):
+    model: pl.LightningModule = hydra.utils.instantiate(
+        cfg.model,
+        optim=cfg.optim,
+        data=cfg.data,
+        logging=cfg.logging,
+        _recursive_=False,
+    )
+    return model
+
+
+def get_datamodule(cfg):
+    hydra.utils.log.info(f"Instantiating <{cfg.data.datamodule._target_}>")
+    datamodule = hydra.utils.instantiate(cfg.data.datamodule, _recursive_=False)
+    datamodule.setup()
+    return datamodule
+
+
+# def get_hydra_cfg(config_name: str = "default", overrides=[]) -> DictConfig:
+#     """
+#     Instantiate and return the hydra config -- streamlit and jupyter compatible
+#
+#     Args:
+#         config_name: .yaml configuration name, without the extension
+#
+#     Returns:
+#         The desired omegaconf.DictConfig
+#     """
+#     GlobalHydra.instance().clear()
+#     hydra.experimental.initialize_config_dir(config_dir=str(PROJECT_ROOT / "conf"))
+#     return compose(config_name=config_name, overrides=overrides)
 
 
 def register_custom_resolvers():
@@ -21,12 +98,33 @@ def register_custom_resolvers():
 register_custom_resolvers()
 
 
-def get_hydra_cfg(config_path=None, overrides=[]):
-    if config_path is None:
-        config_path = str(PROJECT_ROOT / "conf")
-    with initialize(config_path=config_path):
-        cfg = compose(config_name="default", overrides=overrides)
-        return cfg
+def wandb_to_hydra_conf(cfg: DictConfig) -> DictConfig:
+    """
+    Takes a DictConfig object obtained by the config.yaml file
+    stored in the wandb run dir.
+    This is because wandb stores configs in flat structures,
+    with keys like:
+        top_key/nested_key1/.../nested_keyN => {'value': value, 'desc':None }
+    rather than:
+        top_key.nested_key1.[...].nested_keyN => value
+    """
+    cfg = dict(cfg)
+    items = [(k, v) for k, v in cfg.items() if "/" in k]
+    for slashed_key, value in items:
+        keys = slashed_key.split("/")
+        c = cfg
+        for new_key in keys[:-1]:
+            if not new_key in c:
+                c[new_key] = {}
+            c = c[new_key]
+        c[keys[-1]] = value["value"]
+
+    for k, _ in items:
+        del cfg[k]
+    for k in (k for k in list(cfg.keys()) if "_wandb" in k):
+        del cfg[k]
+
+    return OmegaConf.create(cfg)
 
 
 def get_env(env_name: str, default: Optional[str] = None) -> str:
