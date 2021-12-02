@@ -157,7 +157,11 @@ class TimeSeriesModule(pl.LightningModule):
                 self._classification_forward(classification_logits, categorical_targets)
             )
 
-        losses = [value for key, value in out.items() if key.endswith("_loss")]
+        losses = [
+            value
+            for key, value in out.items()
+            if key.endswith("_loss") and not "baseline" in key
+        ]
         if losses:
             out["loss"] = torch.stack(losses).sum()
             out["metrics/loss"] = out["loss"]
@@ -204,9 +208,13 @@ class TimeSeriesModule(pl.LightningModule):
         )
         if not self.hparams.optim.use_lr_scheduler:
             return [opt]
-        scheduler = hydra.utils.instantiate(
-            self.hparams.optim.lr_scheduler, optimizer=opt
-        )
+        scheduler = {
+            "scheduler": hydra.utils.instantiate(
+                self.hparams.optim.lr_scheduler, optimizer=opt
+            ),
+            "interval": "step",
+            "frequency": 1,
+        }
         return [opt], [scheduler]
 
     def _regression_plot_fig(self, step_outputs):

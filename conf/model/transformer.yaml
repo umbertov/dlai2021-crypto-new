@@ -11,6 +11,7 @@ model:
       _target_: src.models.CausalTransformer
       feature_size: 256
       n_heads: 4
+      num_layers: 1
       dropout: ${model.dropout}
       #     lstm:
       #       _target_: src.models.LstmModel
@@ -34,7 +35,7 @@ regression_loss_fn:
 reconstruction_loss_fn:
 reconstruction_loss_weight:
   1
-dropout: 0.0
+dropout: 0.1
 activation:
   torch.nn.ReLU
-flatten_input: True
+flatten_input: False

@@ -10,6 +10,7 @@ defaults:
   - hydra: default
   - logging: default
   - model: default
+  - lr_scheduler: default
   - optim: default
   - train: default
   #### KEEP THIS AS THE LAST

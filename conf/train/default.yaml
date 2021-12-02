@@ -12,7 +12,7 @@ pl_trainer:
   max_epochs: 50
   accumulate_grad_batches: 1
   num_sanity_val_steps: 2
-  gradient_clip_val: 1.0
+  gradient_clip_val: 0.5
 
 monitor_metric: 'val/loss'
 monitor_metric_mode: 'min'
