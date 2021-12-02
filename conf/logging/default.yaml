@@ -5,8 +5,9 @@ progress_bar_refresh_rate: 20
 wandb:
   project: dlai-stonks-new
   entity: null
-  log_model: True
+  log_model: 'all'
   mode: 'online'
+  save_code: True
 
 wandb_watch:
   log: 'all'

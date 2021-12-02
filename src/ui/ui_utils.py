@@ -23,7 +23,7 @@ load_envs()
 WANDB_DIR: Path = PROJECT_ROOT / "wandb"
 WANDB_DIR.mkdir(exist_ok=True, parents=True)
 
-st_run_sel = st.sidebar
+sidebar = st.sidebar
 
 
 def local_checkpoint_selection(run_dir: Path, st_key: str) -> Path:
@@ -33,7 +33,7 @@ def local_checkpoint_selection(run_dir: Path, st_key: str) -> Path:
             f"There's no checkpoint under {run_dir}! Are you sure the restore was successful?"
         )
         st.stop()
-    checkpoint_path: Path = st_run_sel.selectbox(
+    checkpoint_path: Path = sidebar.selectbox(
         label="Select a checkpoint",
         index=len(checkpoint_paths) - 1,
         options=checkpoint_paths,
@@ -74,10 +74,10 @@ def get_run_dir(entity: str, project: str, run_id: str) -> Path:
     if len(matching_runs) == 1:
         return matching_runs[0]
 
-    only_checkpoint: bool = st_run_sel.checkbox(
+    only_checkpoint: bool = sidebar.checkbox(
         label="Download only the checkpoint?", value=True
     )
-    if st_run_sel.button(label="Download"):
+    if sidebar.button(label="Download"):
         run_dir: Path = WANDB_DIR / f"restored-{timestamp}-{run.id}" / "files"
         files = [
             file
@@ -96,7 +96,7 @@ def get_run_dir(entity: str, project: str, run_id: str) -> Path:
 
 
 def select_run_path(st_key: str, default_run_path: str):
-    run_path: str = st_run_sel.text_input(
+    run_path: str = sidebar.text_input(
         label="Run path (entity/project/id):",
         value=default_run_path,
         key=f"run_path_select_{st_key}",

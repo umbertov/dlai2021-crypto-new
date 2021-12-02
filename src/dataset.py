@@ -1,6 +1,7 @@
 from typing import Callable, List, Optional, Union
 from pathlib import Path
 import torch
+from torch import tensor
 from torch.utils.data import TensorDataset, ConcatDataset, Dataset
 import pandas as pd
 from glob import glob
@@ -29,6 +30,8 @@ class DataframeDataset(TensorDataset):
         name,
         window_length=1,
         window_skip=1,
+        future_window_length=0,
+        return_dicts=False,
     ):
         self.dataframe = dataframe
         self.input_columns = input_columns
@@ -36,11 +39,15 @@ class DataframeDataset(TensorDataset):
         self.categorical_targets = categorical_targets
         self.name = name
         self.window_length = window_length
+        self.future_window_length = future_window_length
+        self.tensor_names = ["inputs"]
+        if return_dicts:
+            self.__getitem__ = self.dict_getitem  # type: ignore
 
         window_indices = torch.tensor(
             [
                 range(i, i + window_length)
-                for i in range(len(dataframe) - window_length)
+                for i in range(len(dataframe) - window_length - future_window_length)
             ][::window_skip],
             dtype=torch.long,
         )
@@ -52,12 +59,35 @@ class DataframeDataset(TensorDataset):
             targets.append(
                 from_pandas(dataframe[continuous_targets]).float()[window_indices]
             )
+            self.tensor_names.append("continuous_targets")
         if categorical_targets is not None:
             targets.append(
                 from_pandas(dataframe[categorical_targets]).long()[window_indices]
             )
+            self.tensor_names.append("categorical_targets")
+        if future_window_length > 0:
+            future_window_indices = torch.tensor(
+                [
+                    range(i + window_length, i + window_length + future_window_length)
+                    for i in range(
+                        len(dataframe) - window_length - future_window_length
+                    )
+                ][::window_skip],
+                dtype=torch.long,
+            )
+            self.future_window_indices = future_window_indices
+            targets.append(
+                from_pandas(dataframe[continuous_targets]).float()[
+                    future_window_indices
+                ]
+            )
+            self.tensor_names.append("future_continuous_targets")
 
         super().__init__(input_tensors, *targets)
+
+    def dict_getitem(self, idx):
+        out = super().__getitem__(idx)
+        return {name: tensor for name, tensor in zip(self.tensor_names, out)}
 
 
 def from_pandas(df: pd.DataFrame) -> torch.Tensor:

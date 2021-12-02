@@ -8,7 +8,7 @@ import streamlit as st
 
 from src.common.data_utils import plot_ohlcv, plot_multi_lines
 from src.common.utils import get_hydra_cfg, get_model, get_datamodule
-from src.ui.ui_utils import streamlit_select_checkpoint
+from src.ui.ui_utils import streamlit_select_checkpoint, sidebar
 
 from copy import deepcopy
 
@@ -22,8 +22,8 @@ def load_model_checkpoint(model, checkpoint_path: Path):
 
 copyresult = lambda f: lambda *args, **kwargs: deepcopy(f(*args, **kwargs))
 
-get_hydra_cfg = copyresult(st.cache(get_hydra_cfg))
-get_datamodule = copyresult(st.cache(get_datamodule))
+get_hydra_cfg = copyresult(st.cache(get_hydra_cfg, allow_output_mutation=True))
+get_datamodule = copyresult(st.cache(get_datamodule, allow_output_mutation=True))
 
 cfg = get_hydra_cfg(overrides=argv[1:])
 
@@ -35,24 +35,60 @@ train_dataloader = datamodule.train_dataloader()
 train_dataset = datamodule.train_dataset
 # val_dataset = datamodule.val_datasets[0]
 
-dataframe = train_dataset.datasets[0].dataframe
-input_tensors, *targets = train_dataset.datasets[0].tensors
-
-INSTANCE_NUMBER = st.slider(
-    "instance number",
+DATASET_NUMBER = sidebar.slider(
+    "dataset number",
     min_value=0,
-    max_value=len(train_dataset.datasets[0].window_indices),
+    max_value=len(train_dataset.datasets),
     value=0,
 )
-indices = train_dataset.datasets[0].window_indices[INSTANCE_NUMBER].numpy()
+INSTANCE_NUMBER = sidebar.slider(
+    "instance number",
+    min_value=0,
+    max_value=len(train_dataset.datasets[DATASET_NUMBER].window_indices),
+    value=0,
+)
+indices = train_dataset.datasets[DATASET_NUMBER].window_indices[INSTANCE_NUMBER]
+st.write(indices)
 
-st.write(plot_ohlcv(dataframe.iloc[indices]))
+full_dataframe = train_dataset.datasets[DATASET_NUMBER].dataframe
+dataframe = full_dataframe.iloc[indices.numpy()]
+input_tensors, *targets = [
+    t[INSTANCE_NUMBER].unsqueeze(0)
+    for t in train_dataset.datasets[DATASET_NUMBER].tensors
+]
+
+
+st.header(f"Candlestick graph for instance {INSTANCE_NUMBER}")
+st.write(plot_ohlcv(dataframe))
+
+full_dataframe_minmax_scaled = (full_dataframe - full_dataframe.Open.min()) / (
+    full_dataframe.Open.max() - full_dataframe.Open.min()
+)
+st.header(f"Minmax Scaled version")
+st.write(plot_ohlcv(full_dataframe_minmax_scaled.iloc[indices]))
+
+ZSCORE_PERIOD = sidebar.slider("zscore period", min_value=0, max_value=500, value=20)
+mean = full_dataframe.Open.rolling(ZSCORE_PERIOD).mean()
+std = full_dataframe.Open.rolling(ZSCORE_PERIOD).std() * 2
+full_dataframe_zscore_scaled = full_dataframe.sub(mean, axis=0).div(std, axis=0)
+st.header(f"Zscore Scaled version")
+st.write(plot_ohlcv(full_dataframe_zscore_scaled.iloc[indices]))
 
 
 checkpoint_path = streamlit_select_checkpoint()
 model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
 st.write(f"Created model <{cfg.model._target_}>")
-st.write(f"at path {str(checkpoint_path)=} ")
+
+model_out = model(input_tensors)
+st.write(model_out.keys())
+
+st.header("Prediction vs ground truth:")
+st.write(
+    plot_multi_lines(
+        truth=targets[0].view(-1).cpu().numpy(),
+        prediction=model_out["regression_output"].view(-1).cpu().numpy(),
+    )
+)
 
 
 # ground_truth_batch = batch.target_data.view(BATCH_SIZE, -1)

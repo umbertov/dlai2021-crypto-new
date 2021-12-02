@@ -49,7 +49,9 @@ def build_callbacks(cfg: DictConfig) -> List[Callback]:
                 monitor=cfg.train.monitor_metric,
                 mode=cfg.train.monitor_metric_mode,
                 save_top_k=cfg.train.model_checkpoints.save_top_k,
+                save_last=True,
                 verbose=cfg.train.model_checkpoints.verbose,
+                auto_insert_metric_name=True,
             )
         )
 
@@ -92,7 +94,7 @@ def run(cfg: DictConfig) -> None:
 
     # Hydra run directory
     hydra_dir = Path(HydraConfig.get().run.dir)
-    hydra.utils.log.info(f"Hydra Run Dir is: {hydra_dir}")
+    hydra.utils.log.info(f"Hydra Run Dir is: {hydra_dir.absolute()}")
 
     # Instantiate datamodule
     hydra.utils.log.info(f"Instantiating <{cfg.data.datamodule._target_}>")
@@ -135,9 +137,12 @@ def run(cfg: DictConfig) -> None:
 
     hydra.utils.log.info(f"Instantiating the Trainer")
 
+    default_root_dir = (
+        wandb_logger.experiment.dir if wandb_logger is not None else hydra_dir
+    )
     # The Lightning core, the Trainer
     trainer = pl.Trainer(
-        default_root_dir=hydra_dir,
+        default_root_dir=default_root_dir,
         logger=wandb_logger,
         callbacks=callbacks,
         deterministic=cfg.train.deterministic,
@@ -159,6 +164,7 @@ def run(cfg: DictConfig) -> None:
     # Logger closing to release resources/avoid multi-run conflicts
     if wandb_logger is not None:
         wandb_logger.experiment.finish()
+        wandb_logger.save()
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")

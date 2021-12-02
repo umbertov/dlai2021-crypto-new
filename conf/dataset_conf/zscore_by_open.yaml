@@ -1,0 +1,24 @@
+defaults:
+  - data_path: yahoofinance5min.yaml
+
+window_length: 1
+dataset_reader:
+  _target_: src.dataset_readers.zscore_by_open_reader
+
+input_columns:
+  - Zscore100(Open)
+  - Zscore100(High)
+  - Zscore100(Low)
+  - Zscore100(Close)
+  - Log(PctChange(Open))
+continuous_targets:
+  - FutureClose
+categorical_targets: null
+n_classes: 3
+train_period:
+  start: 2018-05-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01
+window_skip: 1

@@ -4,13 +4,14 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import wandb
+import random
 
 import pytorch_lightning as pl
 import torchmetrics.functional as M
 from torchmetrics.classification.confusion_matrix import ConfusionMatrix
 from einops import rearrange
-from common.plot_utils import confusion_matrix_fig
-from src.common.plot_utils import confusion_matrix_table
+from src.common.data_utils import plot_multi_lines
+from src.common.plot_utils import confusion_matrix_fig
 
 from src.models import ClassifierWithAutoEncoder
 from src.common.utils import PROJECT_ROOT
@@ -80,6 +81,19 @@ class TimeSeriesModule(pl.LightningModule):
         return {
             "metrics/reg_loss": regression_loss,
             "metrics/baseline_reg_loss": baseline_loss,
+            "continuous_targets": continuous_targets,
+        }
+
+    def _future_regression_forward(
+        self, future_regression_output, future_continuous_targets
+    ):
+        out = self._regression_forward(
+            future_regression_output, future_continuous_targets
+        )
+        return {
+            "metrics/future_reg_loss": out["metrics/reg_loss"],
+            "metrics/future_baseline_reg_loss": out["metrics/reg_loss"],
+            "future_continuous_targets": out["continuous_targets"],
         }
 
     def _reconstruction_forward(self, reconstruction, inputs):
@@ -116,6 +130,7 @@ class TimeSeriesModule(pl.LightningModule):
         inputs: torch.Tensor,
         continuous_targets: torch.Tensor = None,
         categorical_targets: torch.Tensor = None,
+        future_continuous_targets: torch.Tensor = None,
     ):
 
         model_out = self.model(inputs)
@@ -123,10 +138,16 @@ class TimeSeriesModule(pl.LightningModule):
         regression_output = model_out.get("regression_output", None)
         reconstruction = model_out.get("reconstruction", None)
 
-        out = dict()
+        out = dict(model_out)
 
-        if regression_output is not None:
+        if regression_output is not None and continuous_targets is not None:
             out.update(self._regression_forward(regression_output, continuous_targets))
+            if future_continuous_targets is not None:
+                out.update(
+                    self._future_regression_forward(
+                        model_out["future_regression_output"], future_continuous_targets
+                    )
+                )
 
         if reconstruction is not None:
             out.update(self._reconstruction_forward(reconstruction, inputs))
@@ -136,10 +157,10 @@ class TimeSeriesModule(pl.LightningModule):
                 self._classification_forward(classification_logits, categorical_targets)
             )
 
-        out["loss"] = torch.stack(
-            [value for key, value in out.items() if key.endswith("_loss")]
-        ).sum()
-        out["metrics/loss"] = out["loss"]
+        losses = [value for key, value in out.items() if key.endswith("_loss")]
+        if losses:
+            out["loss"] = torch.stack(losses).sum()
+            out["metrics/loss"] = out["loss"]
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
 
     def training_step(self, batch, batch_idx):
@@ -188,17 +209,31 @@ class TimeSeriesModule(pl.LightningModule):
         )
         return [opt], [scheduler]
 
+    def _regression_plot_fig(self, step_outputs):
+        step_out = random.choice(step_outputs)
+        plot = plot_multi_lines(
+            prediction=step_out["regression_output"][0].view(-1).cpu(),
+            truth=step_out["continuous_targets"][0].view(-1).cpu(),
+        )
+        return plot
+
     def training_epoch_end(self, step_outputs):
         if self.classification_loss_fn is not None:
             confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
             self.logger.experiment.log(
                 {"train/confusion_matrix": confusion_matrix_plot}
             )
+        if self.regression_loss_fn is not None:
+            plot = self._regression_plot_fig(step_outputs)
+            self.logger.experiment.log({"train/prediction_plot": plot})
 
     def validation_epoch_end(self, step_outputs):
         if self.classification_loss_fn is not None:
             confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
             self.logger.experiment.log({"val/confusion_matrix": confusion_matrix_plot})
+        if self.regression_loss_fn is not None:
+            plot = self._regression_plot_fig(step_outputs)
+            self.logger.experiment.log({"val/prediction_plot": plot})
 
     def _confusion_matrix_plot(self, step_outputs):
         assert step_outputs

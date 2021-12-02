@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import torch.nn.init as I
 from torch.nn import functional as F
+import math
 
 from typing import Callable, Optional
 from einops.layers.torch import Rearrange
@@ -74,9 +75,10 @@ class CausalTransformer(nn.Module):
         num_layers=1,
         n_heads=4,
         dropout=0.1,
-        prediction_head=None,
     ):
         super(CausalTransformer, self).__init__()
+        self.feature_size = feature_size
+
         self.src_mask = None
         self.pos_encoder = SinePositionalEncoding(feature_size)
         self.encoder_layer = nn.TransformerEncoderLayer(
@@ -85,10 +87,7 @@ class CausalTransformer(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=num_layers
         )
-        if not prediction_head:
-            self.decoder = nn.Linear(feature_size, 1)
-        else:
-            self.decoder = prediction_head
+        self.decoder = nn.Identity()
         self.init_weights()
 
     def init_weights(self):
@@ -117,6 +116,24 @@ class CausalTransformer(nn.Module):
             .masked_fill(mask == 1, float(0.0))
         )
         return mask
+
+
+class TransformerForecaster(nn.Module):
+    def __init__(
+        self,
+        in_size,
+        transformer: CausalTransformer,
+    ):
+        super().__init__()
+        self.in_size = in_size
+        self.embedding = nn.Linear(in_size, transformer.feature_size, bias=False)
+        self.transformer = transformer
+        self.out_dim = transformer.feature_size
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        out = self.transformer(embedded)
+        return out
 
 
 class DictEmbedder(nn.Module):
@@ -199,6 +216,11 @@ class LstmModel(nn.Module):
         encoded_seq, _ = self.lstm(x)
         return encoded_seq
         # return rearrange(encoded_seq, "batch seqlen f -> batch (seqlen f)")
+
+
+class AutoregressiveLstmModel(LstmModel):
+    def forward(self, x, n_autoregression_steps=0):
+        raise NotImplementedError
 
 
 class LstmMLP(nn.Module):

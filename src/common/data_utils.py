@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 from glob import glob
 
 
-ohlcv_cols = ["Open", "High", "Low", "Close", "Volume"]
+ohlc_cols = ["Open", "High", "Low", "Close"]
 
 
 def plot_multi_lines(title=None, **name_data):
@@ -23,7 +23,7 @@ def plot_multi_lines(title=None, **name_data):
 
 
 def plot_ohlcv(df):
-    o, h, l, c, v = df[ohlcv_cols].T.values
+    o, h, l, c = df[ohlc_cols].T.values
     candles = go.Candlestick(x=df.index, open=o, high=h, low=l, close=c)
     return go.Figure(data=[candles])
 
@@ -55,7 +55,7 @@ def read_joined_dataframes(reader, resampler=id, **tickers_paths):
             pbar.update()
 
             dataframe = pd.rename(
-                resampler(reader(path))[ohlcv_cols],
+                resampler(reader(path))[ohlc_cols],
                 columns=lambda c: f"{c}_{ticker}",
             )
             result = result.join(dataframe, how="outer")

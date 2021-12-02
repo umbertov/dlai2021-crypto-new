@@ -139,17 +139,21 @@ Strip = DataframeTransformer(remove_leading_trailing_nans)
 RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna(), name="RSI")
 
 
-def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0):
-    mean = df.rolling(period).mean()
-    std = 1e-30 + stddev_mult * df.rolling(period).std()
-    return ((df - mean) / std).ffill()
+def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
+    if by is None:
+        by_df = df
+    else:
+        by_df = df[by]
+    mean = by_df.rolling(period).mean()
+    std = 1e-30 + stddev_mult * by_df.rolling(period).std()
+    return df.sub(mean, axis=0).div(std, axis=0).ffill()
 
 
 def ZScoreNormalize(
-    colname: str, period: int, stddev_mult: float = 2.0, target_column=None
+    colname: str, period: int, stddev_mult: float = 2.0, target_column=None, by=None
 ):
     def transformer(df):
-        return zscore_norm_dataframe(df, period=period, stddev_mult=stddev_mult)
+        return zscore_norm_dataframe(df, period=period, stddev_mult=stddev_mult, by=by)
 
     return ColumnTrasnformer(transformer, name=f"Zscore{period}")(
         colname, target_column=target_column
@@ -471,6 +475,15 @@ def minmax_scale_df(df):
     return (df - low) / (high - low)
 
 
+def zscore_normalize_columns(
+    columns: list[str], period: int, stddev_mult: float = 2, by=None
+):
+    normalizers = [
+        ZScoreNormalize(colname, period, stddev_mult, by=by) for colname in columns
+    ]
+    return Compose(*normalizers)
+
+
 MinMaxScaler = ColumnTrasnformer(minmax_scale_df, name="MinMax")
 
 minmax_ohlcv = Compose(
@@ -486,32 +499,59 @@ minmax_reader = lambda: Compose(
     Shift("MinMax(Close)", target_column="FutureClose"),
 )
 
+
+def ZscoreBy(columns, period, by):
+    return AddColumns(
+        {
+            f"Zscore{period}({colname})": lambda df: df[colname]
+            .sub(df[by].rolling(period).mean(), axis=0)
+            .div(df[by].rolling(period).std(), axis=0)
+            for colname in columns
+        }
+    )
+
+
+zscore_by_open = lambda period: ZscoreBy(
+    columns=["Open", "High", "Low", "Close"], period=period, by="Open"
+)
+
+zscore_by_open_reader = lambda: Compose(
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    LogPctChange(col="Open"),
+    zscore_by_open(period=100),
+    Shift("Zscore100(Open)", target_column="FutureOpen"),
+    Shift("Zscore100(High)", target_column="FutureHigh"),
+    Shift("Zscore100(Low)", target_column="FutureLow"),
+    Shift("Zscore100(Close)", target_column="FutureClose"),
+    Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+)
+
 zscore_reader = lambda normalize_colnames: Compose(
     example_reader,
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
+    zscore_normalize_columns(normalize_colnames, period=20),
+    zscore_normalize_columns(normalize_colnames, period=50),
+    zscore_normalize_columns(normalize_colnames, period=100),
+    zscore_normalize_columns(normalize_colnames, period=200),
     Strip(),
     DebugIfEmpty,
 )
 
 zscore_reader_qbins = lambda normalize_colnames, q: Compose(
     qbin_reader(q=q),
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
+    zscore_normalize_columns(normalize_colnames, period=20),
+    zscore_normalize_columns(normalize_colnames, period=50),
+    zscore_normalize_columns(normalize_colnames, period=100),
+    zscore_normalize_columns(normalize_colnames, period=200),
     Strip(),
     DebugIfEmpty,
 )
 
 zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
     qbin_cumreturn_reader(q=q),
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
+    zscore_normalize_columns(normalize_colnames, period=20),
+    zscore_normalize_columns(normalize_colnames, period=50),
+    zscore_normalize_columns(normalize_colnames, period=100),
+    zscore_normalize_columns(normalize_colnames, period=200),
     Strip(),
     # lambda df: df.ffill(),
     DebugIfEmpty,
@@ -520,10 +560,10 @@ zscore_cumreturn_qbin_reader = lambda normalize_colnames, q: Compose(
 zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
     bin_cumreturn_reader(bins=GTZERO_BINS),
     minmax_ohlcv,
-    zscore_normalize_reader(normalize_colnames, period=20),
-    zscore_normalize_reader(normalize_colnames, period=50),
-    zscore_normalize_reader(normalize_colnames, period=100),
-    zscore_normalize_reader(normalize_colnames, period=200),
+    zscore_normalize_columns(normalize_colnames, period=20),
+    zscore_normalize_columns(normalize_colnames, period=50),
+    zscore_normalize_columns(normalize_colnames, period=100),
+    zscore_normalize_columns(normalize_colnames, period=200),
     Strip(),
     DebugIfNan(),
     # lambda df: df.ffill(),
@@ -532,11 +572,6 @@ zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
 
 
 GTZERO_BINS = [float("-inf"), 0, float("inf")]
-
-
-def zscore_normalize_reader(columns: list[str], period: int, stddev_mult: float = 2):
-    normalizers = [ZScoreNormalize(colname, period, stddev_mult) for colname in columns]
-    return Compose(*normalizers)
 
 
 def DebugIfEmpty(df):
@@ -553,9 +588,9 @@ if __name__ == "__main__":
     input_columns = cfg.dataset_conf.input_columns
     reader = Compose(
         example_reader,
-        zscore_normalize_reader(input_columns, period=20),
-        zscore_normalize_reader(input_columns, period=50),
-        zscore_normalize_reader(input_columns, period=100),
+        zscore_normalize_columns(input_columns, period=20),
+        zscore_normalize_columns(input_columns, period=50),
+        zscore_normalize_columns(input_columns, period=100),
         Strip(),
     )
     df = reader("./data/yahoofinance_crypto/BTC-USD.2021-08-30.2021-10-28.csv")
