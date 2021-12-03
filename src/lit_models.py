@@ -4,14 +4,18 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import wandb
+from plotly.subplots import make_subplots
 import random
 
 import pytorch_lightning as pl
 import torchmetrics.functional as M
 from torchmetrics.classification.confusion_matrix import ConfusionMatrix
 from einops import rearrange
-from src.common.data_utils import plot_multi_lines
-from src.common.plot_utils import confusion_matrix_fig
+from src.common.plot_utils import (
+    confusion_matrix_fig,
+    plot_multi_lines,
+    plot_multi_ohlcv,
+)
 
 from src.models import ClassifierWithAutoEncoder
 from src.common.utils import PROJECT_ROOT
@@ -217,14 +221,6 @@ class TimeSeriesModule(pl.LightningModule):
         }
         return [opt], [scheduler]
 
-    def _regression_plot_fig(self, step_outputs):
-        step_out = random.choice(step_outputs)
-        plot = plot_multi_lines(
-            prediction=step_out["regression_output"][0].view(-1).cpu(),
-            truth=step_out["continuous_targets"][0].view(-1).cpu(),
-        )
-        return plot
-
     def training_epoch_end(self, step_outputs):
         if self.classification_loss_fn is not None:
             confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
@@ -242,6 +238,30 @@ class TimeSeriesModule(pl.LightningModule):
         if self.regression_loss_fn is not None:
             plot = self._regression_plot_fig(step_outputs)
             self.logger.experiment.log({"val/prediction_plot": plot})
+
+    def _regression_plot_fig(self, step_outputs):
+        step_out = random.choice(step_outputs)
+        regression_out = step_out["regression_output"][0]
+        target = step_out["continuous_targets"][0]
+        assert regression_out.shape == target.shape
+        length, n_channels = regression_out.shape
+
+        if n_channels == len("ohlc"):
+            return plot_multi_ohlcv(prediction=regression_out.cpu(), truth=target.cpu())
+
+        else:
+            fig = make_subplots(
+                rows=n_channels,
+                cols=1,
+                subplot_titles=[f"Channel #{i}" for i in range(n_channels)],
+            )
+            for channel in range(n_channels):
+                trace = plot_multi_lines(
+                    truth=target[:, channel].view(-1).cpu(),
+                    prediction=regression_out[:, channel].view(-1).cpu(),
+                )
+                fig.add_trace(trace, row=channel, col=1)
+            return fig
 
     def _confusion_matrix_plot(self, step_outputs):
         assert step_outputs

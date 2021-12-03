@@ -1,6 +1,7 @@
 defaults:
   - data_path: yahoofinance5min.yaml
 
+name: zscore_by_open_ohlcvtarget
 window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.zscore_by_open_reader
@@ -10,13 +11,13 @@ input_columns:
   - Zscore100(High)
   - Zscore100(Low)
   - Zscore100(Close)
-  - Log(PctChange(Open))
+    #- Log(PctChange(Open))
 continuous_targets:
   - FutureOpen
   - FutureHigh
   - FutureLow
   - FutureClose
-  - FutureLogReturn
+    #- FutureLogReturn
 categorical_targets: null
 n_classes: 3
 train_period:

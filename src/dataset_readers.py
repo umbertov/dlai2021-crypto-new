@@ -501,19 +501,46 @@ minmax_reader = lambda: Compose(
 
 
 def ZscoreBy(columns, period, by):
-    return AddColumns(
-        {
-            f"Zscore{period}({colname})": lambda df: df[colname]
+    columns = {
+        f"Zscore{period}({colname})": lambda df: (
+            df[colname]
             .sub(df[by].rolling(period).mean(), axis=0)
             .div(df[by].rolling(period).std(), axis=0)
-            for colname in columns
-        }
-    )
+        )
+        for colname in columns
+    }
+
+    return AddColumns(columns)
 
 
-zscore_by_open = lambda period: ZscoreBy(
-    columns=["Open", "High", "Low", "Close"], period=period, by="Open"
-)
+def Debug():
+    def f(df):
+        import ipdb
+
+        ipdb.set_trace()
+        return df
+
+    return f
+
+
+# zscore_by_open = lambda period: ZscoreBy(
+#    columns=["Open", "High", "Low", "Close"], period=period, by="Open"
+# )
+
+
+from src.common.data_utils import ohlc_cols
+
+
+def zscore_by_open(period):
+    def f(df):
+        mean = df.Open.rolling(period).mean()
+        std = df.Open.rolling(period).std()
+        for col in ohlc_cols:
+            df[f"Zscore{period}({col})"] = df[col].sub(mean, axis=0).div(std, axis=0)
+        return df
+
+    return f
+
 
 zscore_by_open_reader = lambda: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
@@ -524,6 +551,7 @@ zscore_by_open_reader = lambda: Compose(
     Shift("Zscore100(Low)", target_column="FutureLow"),
     Shift("Zscore100(Close)", target_column="FutureClose"),
     Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+    Strip(),
 )
 
 zscore_reader = lambda normalize_colnames: Compose(

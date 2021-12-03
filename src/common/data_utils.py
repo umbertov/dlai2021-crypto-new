@@ -11,23 +11,6 @@ from glob import glob
 ohlc_cols = ["Open", "High", "Low", "Close"]
 
 
-def plot_multi_lines(title=None, **name_data):
-    charts = [
-        go.Scatter(y=line_data, name=name, opacity=0.5)
-        for name, line_data in name_data.items()
-    ]
-    fig = go.Figure(data=charts)
-    if title is not None:
-        fig.update_layout(title=title)
-    return fig
-
-
-def plot_ohlcv(df):
-    o, h, l, c = df[ohlc_cols].T.values
-    candles = go.Candlestick(x=df.index, open=o, high=h, low=l, close=c)
-    return go.Figure(data=[candles])
-
-
 def rsi(ohlc: pd.DataFrame, period=14):
     delta = ohlc["Close"].diff()
 

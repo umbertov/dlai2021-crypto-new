@@ -2,11 +2,12 @@ import hydra
 import torch
 from einops import rearrange
 from pathlib import Path
+import plotly.graph_objects as go
 from sys import argv
 
 import streamlit as st
 
-from src.common.data_utils import plot_ohlcv, plot_multi_lines
+from src.common.plot_utils import plot_ohlcv, plot_multi_lines
 from src.common.utils import get_hydra_cfg, get_model, get_datamodule
 from src.ui.ui_utils import streamlit_select_checkpoint, sidebar
 
@@ -84,9 +85,11 @@ st.write(model_out.keys())
 
 st.header("Prediction vs ground truth:")
 st.write(
-    plot_multi_lines(
-        truth=targets[0].view(-1).cpu().numpy(),
-        prediction=model_out["regression_output"].view(-1).cpu().numpy(),
+    go.Figure(
+        data=plot_multi_lines(
+            truth=targets[0].view(-1).cpu().numpy(),
+            prediction=model_out["regression_output"].view(-1).cpu().numpy(),
+        )
     )
 )
 
@@ -98,8 +101,8 @@ st.write(
 #
 # for y_true, y_pred in zip(ground_truth_batch[:5], prediction_batch[:5]):
 #     st.write(
-#         plot_multi_lines(
+#         go.Figure(data=plot_multi_lines(
 #             ground_truth=y_true,
 #             predictions=y_pred,
-#         )
+#         ))
 #     )
