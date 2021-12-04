@@ -1,2 +1,9 @@
-data_path: ${oc.env:PROJECT_ROOT}/data/ftx_ohlcv/*.csv
+data_path: ${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/*.csv
+dataset_conf:
+  train_period:
+    start: 2019-07-22
+    end:   2021-10-01
+  val_period:
+    start: ${dataset_conf.train_period.end}
+    end:   2021-11-23
 

@@ -1,6 +1,7 @@
 import hydra
 import torch
 from einops import rearrange
+import os
 from pathlib import Path
 import plotly.graph_objects as go
 from sys import argv
@@ -23,11 +24,34 @@ def load_model_checkpoint(model, checkpoint_path: Path):
 
 copyresult = lambda f: lambda *args, **kwargs: deepcopy(f(*args, **kwargs))
 
-get_hydra_cfg = copyresult(st.cache(get_hydra_cfg, allow_output_mutation=True))
+get_hydra_cfg = copyresult(get_hydra_cfg)
+# get_hydra_cfg = copyresult(st.cache(get_hydra_cfg, allow_output_mutation=True))
 get_datamodule = copyresult(st.cache(get_datamodule, allow_output_mutation=True))
 
-cfg = get_hydra_cfg(overrides=argv[1:])
+# cfg = get_hydra_cfg(overrides=argv[1:])
 
+
+checkpoint_path, run_dir, cfg, model = None, None, None, None
+
+
+@st.cache(allow_output_mutation=True, suppress_st_warning=True)
+def get_cfg_model(use_checkpoint=False):
+    global checkpoint_path, run_dir
+    if use_checkpoint:
+        checkpoint_path, run_dir = streamlit_select_checkpoint(return_run_dir=True)
+        cfg = get_hydra_cfg(config_path=(f"{run_dir}/files"), config_name="hparams")
+        st.write("Loaded succesfully from", run_dir)
+        model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
+        st.write(f"Created model <{cfg.model._target_}>")
+    else:
+        cfg = get_hydra_cfg(overrides=argv[1:])
+        model = get_model(cfg)
+    return cfg, model
+
+
+use_checkpoint = sidebar.checkbox("Load Checkpoint?", value=False)
+
+cfg, model = get_cfg_model(use_checkpoint)
 
 input_columns = cfg.dataset_conf.input_columns
 datamodule = get_datamodule(cfg)
@@ -76,22 +100,24 @@ st.header(f"Zscore Scaled version")
 st.write(plot_ohlcv(full_dataframe_zscore_scaled.iloc[indices]))
 
 
-checkpoint_path = streamlit_select_checkpoint()
-model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
-st.write(f"Created model <{cfg.model._target_}>")
-
 model_out = model(input_tensors)
 st.write(model_out.keys())
 
+forecast = model.model.forecast(input_tensors[:, :-10], 10)
+
 st.header("Prediction vs ground truth:")
-st.write(
-    go.Figure(
-        data=plot_multi_lines(
-            truth=targets[0].view(-1).cpu().numpy(),
-            prediction=model_out["regression_output"].view(-1).cpu().numpy(),
-        )
-    )
-)
+st.write(targets[0].shape, model_out["regression_output"].shape)
+st.write(model._regression_plot_fig(model_out["regression_output"], targets[0]))
+st.write(model._regression_plot_fig(forecast, targets[0]))
+# st.write(
+#     go.Figure(
+#         data=plot_multi_lines(
+#             truth=targets[0].view(-1).cpu().numpy(),
+#             prediction=model_out["regression_output"].view(-1).cpu().numpy(),
+#             forecast=forecast,
+#         )
+#     )
+# )
 
 
 # ground_truth_batch = batch.target_data.view(BATCH_SIZE, -1)

@@ -1,4 +1,4 @@
-from einops.einops import rearrange
+from einops.einops import rearrange, repeat
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch import nn
@@ -14,6 +14,19 @@ class LambdaLayer(nn.Module):
     def __init__(self, f: Callable):
         super().__init__()
         self.forward = f
+
+
+def compute_forecast(predictor_model, initial_sequence, n_future_steps):
+    """Input :  [Batch, Seqlen, Channels]
+    Output : [Batch, Seqlen + n_future_steps, Channels]
+    """
+    assert initial_sequence.dim() == 3
+    sequence = initial_sequence
+    for i in range(n_future_steps):
+        model_out = predictor_model.forward(sequence)
+        last_timestep = model_out[:, [-1]]
+        sequence = torch.cat([model_out, last_timestep], dim=1)
+    return sequence
 
 
 # stolen from huggingface transformers
@@ -64,6 +77,40 @@ def NonLinear(
         nn.BatchNorm1d(hidden_size),
         Rearrange("batch channels seqlen -> batch seqlen channels"),
     )
+
+
+class OhlcvMSELoss(nn.Module):
+    def forward(self, x, y):
+        assert x.size(-1) == y.size(-1)
+        assert x.size(-1) == 4
+        losses = []
+
+        losses.append(F.mse_loss(x, y))
+        x, y = x + 1e-15, y + 1e-15
+
+        x_oc_ratio = torch.log((x[..., 0] / x[..., 3]) ** 2)
+        y_oc_ratio = torch.log((y[..., 0] / y[..., 3]) ** 2)
+        losses.append(F.mse_loss(x_oc_ratio, y_oc_ratio))
+
+        x_oh_ratio = torch.log((x[..., 0] / x[..., 1]) ** 2)
+        y_oh_ratio = torch.log((y[..., 0] / y[..., 1]) ** 2)
+        losses.append(F.mse_loss(x_oh_ratio, y_oh_ratio))
+
+        x_ol_ratio = torch.log((x[..., 0] / x[..., 2]) ** 2)
+        y_ol_ratio = torch.log((y[..., 0] / y[..., 2]) ** 2)
+        losses.append(F.mse_loss(x_ol_ratio, y_ol_ratio))
+
+        x_ch_ratio = torch.log((x[..., 3] / x[..., 1]) ** 2)
+        y_ch_ratio = torch.log((y[..., 3] / y[..., 1]) ** 2)
+        losses.append(F.mse_loss(x_ch_ratio, y_ch_ratio))
+
+        x_cl_ratio = torch.log((x[..., 3] / x[..., 2]) ** 2)
+        y_cl_ratio = torch.log((y[..., 3] / y[..., 2]) ** 2)
+        losses.append(F.mse_loss(x_cl_ratio, y_cl_ratio))
+
+        out = sum(losses) / len(losses)
+        assert not (torch.isnan(out).any() or torch.isinf(out).any())
+        return out
 
 
 def init_gru(cell, gain=1):
@@ -154,19 +201,30 @@ class CausalTransformer(nn.Module):
 
 
 class TransformerForecaster(nn.Module):
+    forecast = compute_forecast
+
     def __init__(
         self,
         in_size,
         transformer: CausalTransformer,
+        embed_by_repetition=False,
     ):
         super().__init__()
         self.in_size = in_size
-        self.embedding = nn.Linear(in_size, transformer.feature_size, bias=False)
+        self.embed_by_repetition = embed_by_repetition
+        if self.embed_by_repetition:
+            assert transformer.feature_size % in_size == 0
+            self.repeat = transformer.feature_size // in_size
+        else:
+            self.embedding = nn.Linear(in_size, transformer.feature_size, bias=False)
         self.transformer = transformer
         self.out_dim = transformer.feature_size
 
     def forward(self, x):
-        embedded = self.embedding(x)
+        if self.embed_by_repetition:
+            embedded = repeat(x, "B L C -> B L (repeat C)", repeat=self.repeat)
+        else:
+            embedded = self.embedding(x)
         out = self.transformer(embedded)
         return out
 
@@ -229,6 +287,8 @@ class SimpleFeedForward(nn.Module):
 
 
 class LstmModel(nn.Module):
+    forecast = compute_forecast
+
     def __init__(self, in_size, hidden_size, window_length, num_layers, dropout=0.0):
         super().__init__()
         self.in_size = in_size
@@ -259,6 +319,8 @@ class AutoregressiveLstmModel(LstmModel):
 
 
 class LstmMLP(nn.Module):
+    forecast = compute_forecast
+
     def __init__(self, lstm: LstmModel, mlp: SimpleFeedForward):
         super().__init__()
         self.lstm = lstm
@@ -391,5 +453,13 @@ class Regressor(nn.Module):
 
     def forward(self, x):
         x = self.feature_scaler(x)
-        features = self.feature_extractor(x)
-        return {"regression_output": self.decoder(features)}
+        encoded = self.feature_extractor(x)
+        out = self.decoder(encoded)
+        return {"regression_output": out}
+
+    def forecast(self, *args, **kwargs):
+        return compute_forecast(
+            nn.Sequential(self.feature_scaler, self.feature_extractor, self.decoder),
+            *args,
+            **kwargs
+        )

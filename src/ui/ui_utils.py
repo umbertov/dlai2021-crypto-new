@@ -114,7 +114,7 @@ def select_run_path(st_key: str, default_run_path: str):
 
 
 def streamlit_select_checkpoint(
-    st_key: str = "MyAwesomeModel", default_run_path: str = ""
+    st_key: str = "MyAwesomeModel", default_run_path: str = "", return_run_dir=False
 ):
     entity, project, run_id = select_run_path(
         st_key=st_key, default_run_path=default_run_path
@@ -122,6 +122,8 @@ def streamlit_select_checkpoint(
 
     run_dir: Path = get_run_dir(entity=entity, project=project, run_id=run_id)
 
+    if return_run_dir:
+        return local_checkpoint_selection(run_dir, st_key=st_key), run_dir
     return local_checkpoint_selection(run_dir, st_key=st_key)
 
 

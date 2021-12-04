@@ -113,14 +113,14 @@ class MyDataModule(pl.LightningDataModule):
 def main(conf: omegaconf.DictConfig):
     global datamodule, cfg, model
     cfg = conf.copy()
-    datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
-    datamodule.setup()
     model = hydra.utils.instantiate(
         cfg.model,
         optim=cfg.optim,
         # logging=cfg.logging,
         _recursive_=False,
     )
+    datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
+    datamodule.setup()
     ins, *targets = next(iter(datamodule.train_dataloader()))
     if len(targets) == 2:
         cont, cat = targets

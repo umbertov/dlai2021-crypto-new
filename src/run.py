@@ -101,6 +101,12 @@ def run(cfg: DictConfig) -> None:
     datamodule: pl.LightningDataModule = hydra.utils.instantiate(
         cfg.data.datamodule, _recursive_=False
     )
+    hydra.utils.log.info(
+        f"Train Period:\n {OmegaConf.to_yaml(cfg.dataset_conf.train_period)}"
+    )
+    hydra.utils.log.info(
+        f"Val Period:\n {OmegaConf.to_yaml(cfg.dataset_conf.val_period)}"
+    )
 
     # Instantiate model
     hydra.utils.log.info(f"Instantiating <{cfg.model._target_}>")

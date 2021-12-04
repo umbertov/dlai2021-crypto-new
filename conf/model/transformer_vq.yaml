@@ -1,5 +1,5 @@
 _target_: src.lit_models.TimeSeriesModule
-name: transformer
+name: transformer_vq
 model:
   _target_: src.models.Regressor
   n_outputs: ${length:${dataset_conf.continuous_targets}}
@@ -14,10 +14,19 @@ model:
       num_layers: 1
       dropout: ${model.dropout}
     embed_by_repetition: False
+quantizer:
+  _target_: vector_quantize_pytorch.VectorQuantize
+  dim: ${model.model.feature_extractor.in_size}
+  codebook_size: 1024
+  eps: 1e-8
+  kmeans_init: True
+  use_cosine_sim: True
+
 classification_loss_fn:
 regression_loss_fn:
   _target_: torch.nn.MSELoss
 reconstruction_loss_fn:
+  _target_: torch.nn.MSELoss
 reconstruction_loss_weight:
   1
 dropout: 0.1

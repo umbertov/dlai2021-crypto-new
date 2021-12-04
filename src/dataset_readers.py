@@ -97,7 +97,7 @@ def DataframeTransformer(function, **f_kwargs):
 
 def Compose(*transformations):
     def f(df):
-        for t in transformations:
+        for i, t in enumerate(transformations):
             df = t(df)
             if len(df.index) == 0:
                 raise EmptyDataFrame
@@ -399,7 +399,16 @@ def NormOHLC4(columns):
     )
 
 
+def LogOHLC():
+    return Compose(*[Log(col) for col in ["Open", "High", "Low", "Close"]])
+
+
+def ShiftCols(cols):
+    return AddColumns({f"Future{col}": lambda df: np.log(df[col]) for col in cols})
+
+
 feature_set_2 = Compose(
+    LogOHLC(),
     Sma("Open", 9),
     Std("Open", 9),
     Sma("Open", 26),
@@ -417,10 +426,27 @@ feature_set_2 = Compose(
         ]
     ),
     future_mean_std_target,
+    Shift("Open", target_column="FutureOpen"),
+    Shift("High", target_column="FutureHigh"),
+    Shift("Low", target_column="FutureLow"),
+    Shift("Close", target_column="FutureClose"),
+    Shift("Log(Open)", target_column="Log(FutureOpen)"),
+    Shift("Log(High)", target_column="Log(FutureHigh)"),
+    Shift("Log(Low)", target_column="Log(FutureLow)"),
+    Shift("Log(Close)", target_column="Log(FutureClose)"),
 )
 
 feature_set_2_reader = lambda: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    feature_set_2,
+    Strip(),
+)
+
+resampling_feature_set_2_reader = lambda resample: Compose(
+    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    Resample(resample),
+    lambda df: df.ffill(),
+    DebugIfNan(),
     feature_set_2,
     Strip(),
 )
@@ -552,6 +578,7 @@ zscore_by_open_reader = lambda: Compose(
     Shift("Zscore100(Close)", target_column="FutureClose"),
     Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
     Strip(),
+    DebugIfNan(),
 )
 
 zscore_reader = lambda normalize_colnames: Compose(

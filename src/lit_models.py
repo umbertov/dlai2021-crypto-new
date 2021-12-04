@@ -17,7 +17,6 @@ from src.common.plot_utils import (
     plot_multi_ohlcv,
 )
 
-from src.models import ClassifierWithAutoEncoder
 from src.common.utils import PROJECT_ROOT
 
 import hydra
@@ -51,6 +50,28 @@ def regression_baseline_score(
     return loss_fn(targets[:, 1:], targets[:, :-1])
 
 
+from vector_quantize_pytorch import VectorQuantize
+
+
+class CandlestickVqVAE(pl.LightningModule):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
+
+        self.quantizer = hydra.utils.instantiate(
+            self.hparams.quantizer, _recursive_=True, _convert_="partial"
+        )
+
+    def forward(self, inputs, *_, **__):
+        quantized, indices, commitment_loss = self.quantizer(inputs)
+        loss = F.mse_loss(inputs, quantized)
+        return {"reconstruction": quantized, "loss": loss}
+
+
 class TimeSeriesModule(pl.LightningModule):
     def __init__(
         self,
@@ -59,6 +80,13 @@ class TimeSeriesModule(pl.LightningModule):
     ) -> None:
         super().__init__()
         self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
+
+        if "quantizer" in kwargs:
+            self.quantizer = hydra.utils.instantiate(
+                self.hparams.quantizer, _recursive_=True, _convert_="partial"
+            )
+        else:
+            self.quantizer = None
 
         self.model = hydra.utils.instantiate(
             self.hparams.model, _recursive_=True, _convert_="partial"
@@ -137,12 +165,22 @@ class TimeSeriesModule(pl.LightningModule):
         future_continuous_targets: torch.Tensor = None,
     ):
 
-        model_out = self.model(inputs)
+        out = dict(inputs=inputs)
+
+        if self.quantizer is not None:
+            inputs_embedded, indices, commitment_loss = self.quantizer(inputs)
+        else:
+            inputs_embedded = inputs
+
+        model_out = self.model(inputs_embedded)
         classification_logits = model_out.get("classification_logits", None)
         regression_output = model_out.get("regression_output", None)
         reconstruction = model_out.get("reconstruction", None)
 
-        out = dict(model_out)
+        if reconstruction is None and self.quantizer is not None:
+            reconstruction = inputs_embedded
+
+        out.update(model_out)
 
         if regression_output is not None and continuous_targets is not None:
             out.update(self._regression_forward(regression_output, continuous_targets))
@@ -167,7 +205,7 @@ class TimeSeriesModule(pl.LightningModule):
             if key.endswith("_loss") and not "baseline" in key
         ]
         if losses:
-            out["loss"] = torch.stack(losses).sum()
+            out["loss"] = torch.stack(losses).sum() / len(losses)
             out["metrics/loss"] = out["loss"]
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
 
@@ -222,27 +260,42 @@ class TimeSeriesModule(pl.LightningModule):
         return [opt], [scheduler]
 
     def training_epoch_end(self, step_outputs):
+        random_step = random.choice(step_outputs)
         if self.classification_loss_fn is not None:
             confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
             self.logger.experiment.log(
                 {"train/confusion_matrix": confusion_matrix_plot}
             )
         if self.regression_loss_fn is not None:
-            plot = self._regression_plot_fig(step_outputs)
+            plot = self._regression_plot_fig(
+                random_step["regression_output"], random_step["continuous_targets"]
+            )
             self.logger.experiment.log({"train/prediction_plot": plot})
+        if self.reconstruction_loss_fn is not None:
+            plot = self._regression_plot_fig(
+                random_step["reconstruction"], random_step["inputs"]
+            )
+            self.logger.experiment.log({"train/reconstruction_plot": plot})
 
     def validation_epoch_end(self, step_outputs):
+        random_step = random.choice(step_outputs)
         if self.classification_loss_fn is not None:
             confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
             self.logger.experiment.log({"val/confusion_matrix": confusion_matrix_plot})
         if self.regression_loss_fn is not None:
-            plot = self._regression_plot_fig(step_outputs)
+            plot = self._regression_plot_fig(
+                random_step["regression_output"], random_step["continuous_targets"]
+            )
             self.logger.experiment.log({"val/prediction_plot": plot})
+        if self.reconstruction_loss_fn is not None:
+            plot = self._regression_plot_fig(
+                random_step["reconstruction"], random_step["inputs"]
+            )
+            self.logger.experiment.log({"val/reconstruction_plot": plot})
 
-    def _regression_plot_fig(self, step_outputs):
-        step_out = random.choice(step_outputs)
-        regression_out = step_out["regression_output"][0]
-        target = step_out["continuous_targets"][0]
+    def _regression_plot_fig(self, regression_outs, targets):
+        regression_out = regression_outs[0]
+        target = targets[0]
         assert regression_out.shape == target.shape
         length, n_channels = regression_out.shape
 
@@ -256,11 +309,12 @@ class TimeSeriesModule(pl.LightningModule):
                 subplot_titles=[f"Channel #{i}" for i in range(n_channels)],
             )
             for channel in range(n_channels):
-                trace = plot_multi_lines(
+                traces = plot_multi_lines(
                     truth=target[:, channel].view(-1).cpu(),
                     prediction=regression_out[:, channel].view(-1).cpu(),
                 )
-                fig.add_trace(trace, row=channel, col=1)
+                for trace in traces:
+                    fig.add_trace(trace, row=channel + 1, col=1)
             return fig
 
     def _confusion_matrix_plot(self, step_outputs):

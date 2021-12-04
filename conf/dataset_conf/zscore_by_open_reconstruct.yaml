@@ -2,7 +2,6 @@ defaults:
   - data_path: yahoofinance5min.yaml
 
 name: zscore_by_open_ohlcvtarget
-window_length: 1
 dataset_reader:
   _target_: src.dataset_readers.zscore_by_open_reader
 
@@ -27,3 +26,5 @@ val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01
 window_skip: 1
+window_length: 7
+minmax_scale_windows: False

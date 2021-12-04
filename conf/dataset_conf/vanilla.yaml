@@ -2,9 +2,10 @@
 defaults:
   - data_path: yahoofinance5min.yaml
 
-window_length: 1
+window_length: 3
 dataset_reader:
-  _target_: src.dataset_readers.feature_set_2_reader
+  _target_: src.dataset_readers.resampling_feature_set_2_reader
+  resample: 30min
 
 input_columns:
   - Open
@@ -16,8 +17,7 @@ input_columns:
   - Sma26(Open)
   - Std26(Open)
 continuous_targets:
-  - FutureMean
-  - FutureStd
+  - FutureClose
 categorical_targets:
   #  - TargetCategorical
 n_classes: 3
@@ -28,3 +28,4 @@ val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01
 window_skip: 1
+minmax_scale_windows: False

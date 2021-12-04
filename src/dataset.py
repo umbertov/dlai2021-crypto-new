@@ -13,6 +13,18 @@ import hydra
 from omegaconf.dictconfig import DictConfig
 
 
+def minmax_scale_tensor(tensor, low, high):
+    assert ((high - low) > 0).all()
+    return (tensor - low) / (high - low)
+
+
+def get_window_indices(n_elements, window_length, window_skip, future_window_length=0):
+    return [
+        range(i, i + window_length)
+        for i in range(n_elements - window_length - future_window_length)
+    ][::window_skip]
+
+
 class DataframeDataset(TensorDataset):
     dataframe: pd.DataFrame
     input_columns: List[str]
@@ -32,6 +44,7 @@ class DataframeDataset(TensorDataset):
         window_skip=1,
         future_window_length=0,
         return_dicts=False,
+        minmax_scale_windows=False,
     ):
         self.dataframe = dataframe
         self.input_columns = input_columns
@@ -45,21 +58,37 @@ class DataframeDataset(TensorDataset):
             self.__getitem__ = self.dict_getitem  # type: ignore
 
         window_indices = torch.tensor(
-            [
-                range(i, i + window_length)
-                for i in range(len(dataframe) - window_length - future_window_length)
-            ][::window_skip],
+            get_window_indices(
+                n_elements=len(dataframe),
+                window_length=self.window_length,
+                window_skip=window_skip,
+                future_window_length=self.future_window_length,
+            ),
             dtype=torch.long,
         )
         self.window_indices = window_indices
         input_tensors = from_pandas(dataframe[input_columns]).float()[window_indices]
+        if minmax_scale_windows:
+            if minmax_scale_windows == "by_open":
+                low = (
+                    input_tensors[..., 0].min(axis=1, keepdim=True).values.unsqueeze(-1)
+                )
+                high = (
+                    input_tensors[..., 0].max(axis=1, keepdim=True).values.unsqueeze(-1)
+                )
+            else:
+                low = input_tensors.min(axis=1, keepdim=True).values
+                high = input_tensors.max(axis=1, keepdim=True).values
+            input_tensors = minmax_scale_tensor(input_tensors, low, high)
 
         targets = []
         if continuous_targets is not None:
-            targets.append(
-                from_pandas(dataframe[continuous_targets]).float()[window_indices]
-            )
+            t = from_pandas(dataframe[continuous_targets]).float()[window_indices]
+            if minmax_scale_windows:
+                t = minmax_scale_tensor(t, low, high)
+            targets.append(t)
             self.tensor_names.append("continuous_targets")
+
         if categorical_targets is not None:
             targets.append(
                 from_pandas(dataframe[categorical_targets]).long()[window_indices]

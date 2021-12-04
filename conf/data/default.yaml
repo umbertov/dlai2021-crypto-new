@@ -13,6 +13,7 @@ datamodule:
       end_date: ${dataset_conf.train_period.end}
       window_length: ${dataset_conf.window_length}
       window_skip: ${dataset_conf.window_skip}
+      minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
 
     val:
       - _target_: src.dataset.read_csv_datasets_from_glob
@@ -25,6 +26,7 @@ datamodule:
         end_date: ${dataset_conf.val_period.end}
         window_length: ${dataset_conf.window_length}
         window_skip: ${dataset_conf.window_skip}
+        minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
 
 
     test:

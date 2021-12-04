@@ -23,12 +23,12 @@ def try_or_default(f, default=None, exception=Exception):
     return apply
 
 
-def get_hydra_cfg(config_path=None, overrides=[]):
+def get_hydra_cfg(config_path=None, overrides=[], config_name="default"):
     GlobalHydra.instance().clear()
     if config_path is None:
         config_path = str(PROJECT_ROOT / "conf")
     hydra.initialize_config_dir(config_dir=config_path)
-    cfg = hydra.compose(config_name="default", overrides=overrides)
+    cfg = hydra.compose(config_name=config_name, overrides=overrides)
     return cfg
 
 

@@ -1,0 +1,12 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: transformer.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+model:
+  regression_loss_fn:
+    _target_: src.models.OhlcvMSELoss

@@ -1,17 +1,21 @@
 defaults:
   - data_path: yahoofinance5min.yaml
 
-window_length: 1
+window_length: 3
 dataset_reader:
-  _target_: src.dataset_readers.minmax_reader
+  _target_: src.dataset_readers.resampling_feature_set_2_reader
+  resample: 30min
 
 input_columns:
-  - MinMax(Open)
-  - MinMax(High)
-  - MinMax(Low)
-  - MinMax(Close)
+  - Log(Open)
+  - Log(High)
+  - Log(Low)
+  - Log(Close)
 continuous_targets:
-  - FutureClose
+  - Log(FutureOpen)
+  - Log(FutureHigh)
+  - Log(FutureLow)
+  - Log(FutureClose)
 categorical_targets:
   #  - TargetCategorical
 n_classes: 3

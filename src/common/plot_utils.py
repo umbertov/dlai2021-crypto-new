@@ -56,6 +56,7 @@ def plot_multi_ohlcv(**kwargs):
     for i, df in enumerate(kwargs.values()):
         fig.add_trace(candlestick(df), row=i + 1, col=1)
     fig.update_layout(xaxis_rangeslider_visible=False)
+    fig.update_layout(xaxis2_rangeslider_visible=False)
     return fig
 
 

@@ -1,22 +1,26 @@
 defaults:
   - data_path: yahoofinance5min.yaml
 
-window_length: 1
+window_length: 3
 dataset_reader:
-  _target_: src.dataset_readers.zscore_by_open_reader
+  _target_: src.dataset_readers.resampling_feature_set_2_reader
+  resample: 30min
 
 input_columns:
-  - Zscore100(Open)
-  - Zscore100(High)
-  - Zscore100(Low)
-  - Zscore100(Close)
-  - Log(PctChange(Open))
+  - Open
+  - High
+  - Low
+  - Close
 continuous_targets:
+  - FutureOpen
+  - FutureHigh
+  - FutureLow
   - FutureClose
-categorical_targets: null
+categorical_targets:
+  #  - TargetCategorical
 n_classes: 3
 train_period:
-  start: 2018-05-01
+  start: 2021-05-01
   end: 2021-10-01
 val_period:
   start: ${dataset_conf.train_period.end}

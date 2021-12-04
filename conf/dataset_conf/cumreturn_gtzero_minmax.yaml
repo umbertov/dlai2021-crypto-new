@@ -35,3 +35,4 @@ val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01
 window_skip: 1
+minmax_scale_windows: False
