@@ -45,7 +45,9 @@ class DataframeDataset(TensorDataset):
         future_window_length=0,
         return_dicts=False,
         minmax_scale_windows=False,
+        zscore_scale_windows=False,
     ):
+        assert not (minmax_scale_windows and zscore_scale_windows)
         self.dataframe = dataframe
         self.input_columns = input_columns
         self.continuous_targets = continuous_targets
@@ -54,8 +56,9 @@ class DataframeDataset(TensorDataset):
         self.window_length = window_length
         self.future_window_length = future_window_length
         self.tensor_names = ["inputs"]
-        if return_dicts:
-            self.__getitem__ = self.dict_getitem  # type: ignore
+        self.minmax_scale_windows = minmax_scale_windows
+        self.zscore_scale_windows = zscore_scale_windows
+        self.return_dicts = return_dicts
 
         window_indices = torch.tensor(
             get_window_indices(
@@ -81,11 +84,21 @@ class DataframeDataset(TensorDataset):
                 high = input_tensors.max(axis=1, keepdim=True).values
             input_tensors = minmax_scale_tensor(input_tensors, low, high)
 
+        if zscore_scale_windows:
+            mean = input_tensors.mean(axis=1, keepdim=True)
+            std = input_tensors.std(axis=1, keepdim=True)
+            if zscore_scale_windows == "by_open":
+                mean = mean[..., 0].unsqueeze(-1)
+                std = std[..., 0].unsqueeze(-1)
+            input_tensors = (input_tensors - mean) / std
+
         targets = []
         if continuous_targets is not None:
             t = from_pandas(dataframe[continuous_targets]).float()[window_indices]
             if minmax_scale_windows:
                 t = minmax_scale_tensor(t, low, high)
+            if zscore_scale_windows:
+                t = (t - mean) / std
             targets.append(t)
             self.tensor_names.append("continuous_targets")
 
@@ -105,18 +118,23 @@ class DataframeDataset(TensorDataset):
                 dtype=torch.long,
             )
             self.future_window_indices = future_window_indices
-            targets.append(
-                from_pandas(dataframe[continuous_targets]).float()[
-                    future_window_indices
-                ]
-            )
+            t = from_pandas(dataframe[continuous_targets]).float()[
+                future_window_indices
+            ]
+            if minmax_scale_windows:
+                t = minmax_scale_tensor(t, low, high)
+            if zscore_scale_windows:
+                t = (t - mean) / std
+            targets.append(t)
             self.tensor_names.append("future_continuous_targets")
 
         super().__init__(input_tensors, *targets)
 
-    def dict_getitem(self, idx):
+    def __getitem__(self, idx):
         out = super().__getitem__(idx)
-        return {name: tensor for name, tensor in zip(self.tensor_names, out)}
+        if self.return_dicts:
+            return {name: tensor for name, tensor in zip(self.tensor_names, out)}
+        return out
 
 
 def from_pandas(df: pd.DataFrame) -> torch.Tensor:

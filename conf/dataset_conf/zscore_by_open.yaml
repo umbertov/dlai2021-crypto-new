@@ -23,3 +23,6 @@ val_period:
   end: 2021-12-01
 window_skip: 1
 minmax_scale_windows: False
+zscore_scale_windows: False
+future_window_length: 0
+return_dicts: False

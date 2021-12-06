@@ -17,7 +17,7 @@ continuous_targets:
   - FutureLow
   - FutureClose
 categorical_targets:
-  #  - TargetCategorical
+  - FutureRedOrGreen
 n_classes: 3
 train_period:
   start: 2021-05-01
@@ -27,3 +27,6 @@ val_period:
   end: 2021-12-01
 window_skip: 1
 minmax_scale_windows: False
+zscore_scale_windows: False
+future_window_length: 0
+return_dicts: False

@@ -20,10 +20,11 @@ def compute_forecast(predictor_model, initial_sequence, n_future_steps):
     """Input :  [Batch, Seqlen, Channels]
     Output : [Batch, Seqlen + n_future_steps, Channels]
     """
-    assert initial_sequence.dim() == 3
     sequence = initial_sequence
     for i in range(n_future_steps):
         model_out = predictor_model.forward(sequence)
+        if isinstance(model_out, dict):
+            model_out = model_out["regression_output"]
         last_timestep = model_out[:, [-1]]
         sequence = torch.cat([model_out, last_timestep], dim=1)
     return sequence
@@ -135,6 +136,7 @@ def init_lstm(cell, gain=1):
 class SinePositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(SinePositionalEncoding, self).__init__()
+        # Seqlen, channels
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
@@ -142,12 +144,33 @@ class SinePositionalEncoding(nn.Module):
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        # pe.requires_grad = False
+        ### Seqlen, channels -> Batch, Seqlen, channels -> Seqlen, Batch, channels
+        # pe = pe.unsqueeze(0).transpose(0, 1)
+        ### Seqlen, channels -> Batch, Seqlen, channels
+        pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return x + self.pe[: x.size(0), :]
+        #### ATTENTION: this assumes shape == (seq, Batch, channels)?
+        # return x + self.pe[: x.size(0), :]
+        # AND THIS SHOULD BE FOR (Battch, seq, channels) ?
+        return x + self.pe[:, : x.size(1), :]
+
+
+class LearnedPositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super(LearnedPositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model)
+        ### Seqlen, channels -> Batch, Seqlen, channels -> Seqlen, Batch, channels
+        # pe = pe.unsqueeze(0).transpose(0, 1)
+        ### Seqlen, channels -> Batch, Seqlen, channels
+        pe = pe.unsqueeze(0)
+        self.pe = nn.Parameter(pe)
+
+    def forward(self, x):
+        #### ATTENTION: this assumes shape == (seq, Batch, channels)?
+        # return x + self.pe[: x.size(0), :]
+        return x + self.pe[:, : x.size(1), :]
 
 
 class CausalTransformer(nn.Module):
@@ -157,12 +180,18 @@ class CausalTransformer(nn.Module):
         num_layers=1,
         n_heads=4,
         dropout=0.1,
+        positional_encoding="sine",
     ):
         super(CausalTransformer, self).__init__()
         self.feature_size = feature_size
 
         self.src_mask = None
-        self.pos_encoder = SinePositionalEncoding(feature_size)
+        pos_encoder_class = (
+            SinePositionalEncoding
+            if positional_encoding == "sine"
+            else LearnedPositionalEncoding
+        )
+        self.pos_encoder = pos_encoder_class(feature_size)
         self.encoder_layer = nn.TransformerEncoderLayer(
             d_model=feature_size, nhead=n_heads, dropout=dropout
         )
@@ -220,13 +249,16 @@ class TransformerForecaster(nn.Module):
         self.transformer = transformer
         self.out_dim = transformer.feature_size
 
-    def forward(self, x):
+    def forward(self, x, return_dict=True):
         if self.embed_by_repetition:
             embedded = repeat(x, "B L C -> B L (repeat C)", repeat=self.repeat)
         else:
             embedded = self.embedding(x)
         out = self.transformer(embedded)
-        return out
+        if return_dict:
+            return {"transformer_out": out, "transformer_in": embedded}
+        else:
+            return out
 
 
 class DictEmbedder(nn.Module):
@@ -453,13 +485,31 @@ class Regressor(nn.Module):
 
     def forward(self, x):
         x = self.feature_scaler(x)
-        encoded = self.feature_extractor(x)
-        out = self.decoder(encoded)
-        return {"regression_output": out}
+        features = self.feature_extractor(x)
+        if isinstance(features, dict):
+            encoded = features["transformer_out"]
+            out = features
+        else:
+            encoded = features
+            out = dict()
+        out.update({"regression_output": self.decoder(encoded)})
+        return out
 
-    def forecast(self, *args, **kwargs):
-        return compute_forecast(
-            nn.Sequential(self.feature_scaler, self.feature_extractor, self.decoder),
-            *args,
-            **kwargs
-        )
+    # def forecast(self, *args, **kwargs):
+    #     return compute_forecast(
+    #         nn.Sequential(self.feature_scaler, self.feature_extractor, self.decoder),
+    #         *args,
+    #         **kwargs
+    #     )
+    def forecast(self, initial_sequence, n_future_steps):
+        """Input :  [Batch, Seqlen, Channels]
+        Output : [Batch, Seqlen + n_future_steps, Channels]
+        """
+        sequence = initial_sequence
+        for i in range(n_future_steps):
+            model_out = self.forward(sequence)
+            if isinstance(model_out, dict):
+                model_out = model_out["regression_output"]
+            last_timestep = model_out[:, [-1]]
+            sequence = torch.cat([model_out, last_timestep], dim=1)
+        return sequence

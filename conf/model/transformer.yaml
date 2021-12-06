@@ -9,10 +9,11 @@ model:
     in_size: ${length:${dataset_conf.input_columns}}
     transformer:
       _target_: src.models.CausalTransformer
-      feature_size: 256
+      feature_size: 64
       n_heads: 4
       num_layers: 1
       dropout: ${model.dropout}
+      positional_encoding: sine
     embed_by_repetition: False
 classification_loss_fn:
 regression_loss_fn:

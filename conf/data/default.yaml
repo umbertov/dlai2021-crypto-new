@@ -14,6 +14,9 @@ datamodule:
       window_length: ${dataset_conf.window_length}
       window_skip: ${dataset_conf.window_skip}
       minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
+      zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
+      future_window_length: ${dataset_conf.future_window_length}
+      return_dicts: ${dataset_conf.return_dicts}
 
     val:
       - _target_: src.dataset.read_csv_datasets_from_glob
@@ -27,6 +30,9 @@ datamodule:
         window_length: ${dataset_conf.window_length}
         window_skip: ${dataset_conf.window_skip}
         minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
+        zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
+        future_window_length: ${dataset_conf.future_window_length}
+        return_dicts: ${dataset_conf.return_dicts}
 
 
     test:

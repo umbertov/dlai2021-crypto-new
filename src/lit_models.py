@@ -23,6 +23,13 @@ import hydra
 import omegaconf
 
 
+def ohlc_prod_mse_loss(x, y):
+    loss = F.mse_loss(x, y, reduction="none")
+    assert loss.dim() == 3
+    loss = loss.prod(dim=-1)
+    return loss.sum()
+
+
 def compute_accuracy(logits, targets, n_classes):
     return M.accuracy(
         F.softmax(logits, dim=-1),
@@ -184,12 +191,15 @@ class TimeSeriesModule(pl.LightningModule):
 
         if regression_output is not None and continuous_targets is not None:
             out.update(self._regression_forward(regression_output, continuous_targets))
+            assert future_continuous_targets is not None
             if future_continuous_targets is not None:
+                batch, future_window_length, channesl = future_continuous_targets.shape
+                forecast = self.model.forecast(inputs, future_window_length)
+                forecast = forecast[:, -future_window_length:]
                 out.update(
-                    self._future_regression_forward(
-                        model_out["future_regression_output"], future_continuous_targets
-                    )
+                    self._future_regression_forward(forecast, future_continuous_targets)
                 )
+                out["forecast"] = forecast
 
         if reconstruction is not None:
             out.update(self._reconstruction_forward(reconstruction, inputs))
@@ -210,7 +220,12 @@ class TimeSeriesModule(pl.LightningModule):
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
 
     def training_step(self, batch, batch_idx):
-        step_result = self.forward(*batch)
+        if isinstance(batch, dict):
+            step_result = self.forward(**batch)
+        elif isinstance(batch, list):
+            step_result = self.forward(*batch)
+        else:
+            step_result = self.forward(batch)
         metrics = {
             f"train/{key.split('/')[1]}": value
             for key, value in step_result.items()
@@ -220,7 +235,12 @@ class TimeSeriesModule(pl.LightningModule):
         return step_result
 
     def validation_step(self, batch, batch_idx):
-        step_result = self.forward(*batch)
+        if isinstance(batch, dict):
+            step_result = self.forward(**batch)
+        elif isinstance(batch, list):
+            step_result = self.forward(*batch)
+        else:
+            step_result = self.forward(batch)
         metrics = {
             f"val/{key.split('/')[1]}": value
             for key, value in step_result.items()
@@ -271,6 +291,11 @@ class TimeSeriesModule(pl.LightningModule):
                 random_step["regression_output"], random_step["continuous_targets"]
             )
             self.logger.experiment.log({"train/prediction_plot": plot})
+            if "forecast" in random_step.keys():
+                plot = self._regression_plot_fig(
+                    random_step["forecast"], random_step["future_continuous_targets"]
+                )
+                self.logger.experiment.log({"train/forecast_plot": plot})
         if self.reconstruction_loss_fn is not None:
             plot = self._regression_plot_fig(
                 random_step["reconstruction"], random_step["inputs"]
@@ -287,6 +312,12 @@ class TimeSeriesModule(pl.LightningModule):
                 random_step["regression_output"], random_step["continuous_targets"]
             )
             self.logger.experiment.log({"val/prediction_plot": plot})
+            if "forecast" in random_step.keys():
+                plot = self._regression_plot_fig(
+                    random_step["forecast"], random_step["future_continuous_targets"]
+                )
+                self.logger.experiment.log({"val/forecast_plot": plot})
+
         if self.reconstruction_loss_fn is not None:
             plot = self._regression_plot_fig(
                 random_step["reconstruction"], random_step["inputs"]

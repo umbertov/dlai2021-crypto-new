@@ -121,14 +121,19 @@ def main(conf: omegaconf.DictConfig):
     )
     datamodule = hydra.utils.instantiate(conf.data.datamodule, _recursive_=False)
     datamodule.setup()
-    ins, *targets = next(iter(datamodule.train_dataloader()))
-    if len(targets) == 2:
-        cont, cat = targets
-    elif targets[0].dtype == torch.float32:
-        cont, cat = targets[0], None
+    if datamodule.train_dataset.datasets[0].return_dicts:
+        batch = next(iter(datamodule.train_dataloader()))
+        model_out = model(**batch)
     else:
-        cat, cont = targets[0], None
-    model(ins, categorical_targets=cat, continuous_targets=cont)
+        ins, *targets = next(iter(datamodule.train_dataloader()))
+        if len(targets) == 2:
+            cont, cat = targets
+        elif targets[0].dtype == torch.float32:
+            cont, cat = targets[0], None
+        else:
+            cat, cont = targets[0], None
+        model_out = model(ins, categorical_targets=cat, continuous_targets=cont)
+    model.training_epoch_end([model_out])
 
 
 if __name__ == "__main__":

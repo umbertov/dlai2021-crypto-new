@@ -407,6 +407,12 @@ def ShiftCols(cols):
     return AddColumns({f"Future{col}": lambda df: np.log(df[col]) for col in cols})
 
 
+def red_or_green_candle(df):
+    """Adds a column where we have True for green, and False for red candles"""
+    df["RedOrGreen"] = (df.Close - df.Open) > 0
+    return df
+
+
 feature_set_2 = Compose(
     LogOHLC(),
     Sma("Open", 9),
@@ -426,6 +432,8 @@ feature_set_2 = Compose(
         ]
     ),
     future_mean_std_target,
+    red_or_green_candle,
+    Shift("RedOrGreen", target_column="FutureRedOrGreen"),
     Shift("Open", target_column="FutureOpen"),
     Shift("High", target_column="FutureHigh"),
     Shift("Low", target_column="FutureLow"),
