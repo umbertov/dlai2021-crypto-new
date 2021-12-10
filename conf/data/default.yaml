@@ -18,6 +18,7 @@ datamodule:
       future_window_length: ${dataset_conf.future_window_length}
       return_dicts: ${dataset_conf.return_dicts}
       clamp_values: ${dataset_conf.clamp_values}
+      channels_last: ${dataset_conf.channels_last}
 
     val:
       - _target_: src.dataset.read_csv_datasets_from_glob
@@ -35,6 +36,7 @@ datamodule:
         future_window_length: ${dataset_conf.future_window_length}
         return_dicts: ${dataset_conf.return_dicts}
         clamp_values: ${dataset_conf.clamp_values}
+        channels_last: ${dataset_conf.channels_last}
 
 
     test:

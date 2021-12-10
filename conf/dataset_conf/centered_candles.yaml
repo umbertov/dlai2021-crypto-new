@@ -33,3 +33,4 @@ return_dicts: True
 clamp_values:
   min: 0
   max: 1
+channels_last: True

@@ -20,6 +20,67 @@ class LambdaLayer(nn.Module):
         self.forward = f
 
 
+def conv_output_shape(input_length, kernel_size=1, stride=1, padding=0, dilation=1):
+    from math import floor
+
+    h = floor(
+        ((input_length + (padding) - (dilation * (kernel_size - 1)) - 1) / stride) + 1
+    )
+    return h
+
+
+def calc_tcn_outs(input_length, num_channels, kernel_size=2, stride=1):
+    layers = []
+    num_levels = len(num_channels)
+    for i in range(num_levels):
+        dilation_size = 2 ** i
+        in_channels = 0 if i == 0 else num_channels[i - 1]
+        out_channels = num_channels[i]
+        layers += [
+            {
+                "out_length": conv_output_shape(
+                    input_length,
+                    kernel_size=kernel_size,
+                    stride=stride,
+                    dilation=dilation_size,
+                    padding=dilation_size * (kernel_size - 1),
+                )
+                - 1,
+                "in_channels": in_channels,
+                "out_channels": out_channels,
+            }
+        ]
+        input_length = input_length / 2
+    return layers
+
+
+def log_scaled_mse(
+    x,
+    y,
+    reduction,
+    alpha=5,
+    eps=1e-10,
+):
+    mse = F.mse_loss(x, y, reduction=reduction)
+    x_log = torch.log(x + eps)
+    y_log = torch.log(y + eps)
+    assert x_log.isfinite().all()
+    assert y_log.isfinite().all()
+    log_mse = F.mse_loss(x, y, reduction=reduction)
+    return mse + alpha * log_mse
+
+
+def LogScaledMSELoss(reduction="mean"):
+    def f(*args, **kwargs):
+        kwargs["reduction"] = reduction
+        return log_scaled_mse(
+            *args,
+            **kwargs,
+        )
+
+    return f
+
+
 def tuple_to_index(tup, names_to_classes):
     result = 0
     prev_classes = 1
@@ -165,30 +226,88 @@ class VariationalAutoEncoder(nn.Module):
             return mu
 
 
+class FeedForwardVAE(VariationalAutoEncoder):
+    def __init__(self, num_inputs, latent_size):
+        encoder = nn.Sequential(
+            nn.Linear(num_inputs, latent_size),
+            nn.ReLU(),
+        )
+        decoder = nn.Sequential(
+            nn.Linear(latent_size, latent_size),
+            nn.ReLU(),
+            nn.Linear(latent_size, num_inputs),
+            nn.ReLU(),
+        )
+        super().__init__(encoder=encoder, decoder=decoder, latent_size=latent_size)
+
+
 class TcnVAE(VariationalAutoEncoder):
     def __init__(
-        self, num_inputs, latent_size, num_channels=[16], dropout=0.0, kernel_size=2
+        self,
+        num_inputs,
+        latent_size,
+        sequence_length,
+        num_channels=[16],
+        dropout=0.0,
+        kernel_size=2,
+        stride=1,
+        channels_last=False,
     ):
+        TcnClass = TCNWrapper if channels_last else TemporalConvNet
+        unflatten_pattern = (
+            "batch (seq chan) -> batch seq chan"
+            if channels_last
+            else "batch (chan seq) -> batch chan seq"
+        )
+        transpose_channels = (
+            nn.Identity() if channels_last else Rearrange("x y z -> x z y")
+        )
+        self.num_channels = num_channels
+        self.latent_size = latent_size
+        if stride > 1:
+            flattened_size = num_channels[-1] * (
+                sequence_length / (2 ** (len(num_channels)))
+            )
+        else:
+            flattened_size = num_channels[-1] * sequence_length
+        flattened_size = int(flattened_size)
+        # if stride > 1:
+        #     result = calc_tcn_outs(
+        #         input_length=sequence_length,
+        #         num_channels=num_channels,
+        #         kernel_size=kernel_size,
+        #         stride=stride,
+        #     )
+        #     flattened_size = int(num_channels[-1] * result[-1]["out_length"])
         encoder = nn.Sequential(
-            TCNWrapper(
+            TcnClass(
                 num_inputs=num_inputs,
                 num_channels=num_channels,
                 kernel_size=kernel_size,
                 dropout=dropout,
+                stride=stride,
             ),
-            nn.Linear(num_channels[-1], latent_size),
+            Rearrange("batch seq chan -> batch (seq chan)"),
+            nn.Linear(flattened_size, latent_size),
         )
         decoder_num_channels = list(reversed(num_channels))
         decoder = nn.Sequential(
-            TCNWrapper(
-                num_inputs=latent_size,
+            nn.Linear(latent_size, flattened_size),
+            Rearrange(
+                unflatten_pattern,
+                seq=flattened_size // decoder_num_channels[0],
+                chan=decoder_num_channels[0],
+            ),
+            TcnClass(
+                num_inputs=decoder_num_channels[0],
                 num_channels=decoder_num_channels,
                 kernel_size=kernel_size,
                 transposed=True,
                 dropout=dropout,
+                stride=1,
+                upsample=stride,
             ),
-            nn.Linear(decoder_num_channels[-1], num_inputs),
-            nn.Sigmoid(),
+            nn.Conv1d(decoder_num_channels[-1], num_inputs, 1),
         )
         super().__init__(encoder=encoder, decoder=decoder, latent_size=latent_size)
 
@@ -342,10 +461,8 @@ class TCNWrapper(nn.Module):
         self.tcn = TemporalConvNet(*args, **kwargs)
 
     def forward(self, x):
-        x = rearrange(x, "batch seq chan -> batch chan seq")
-        x = self.tcn(x)
-        x = rearrange(x, "batch chan seq -> batch seq chan")
-        return x
+        x = self.tcn(x.transpose(-1, -2))
+        return x.transpose(-1, -2)
 
 
 class TransformerForecaster(nn.Module):

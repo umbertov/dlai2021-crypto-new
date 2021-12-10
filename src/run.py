@@ -146,6 +146,10 @@ def run(cfg: DictConfig) -> None:
     default_root_dir = (
         wandb_logger.experiment.dir if wandb_logger is not None else hydra_dir
     )
+    if "profiler" in cfg.train.pl_trainer:
+        profiler = pl.profiler.AdvancedProfiler(dirpath="/tmp", filename="profiler.out")
+    else:
+        profiler = None
     # The Lightning core, the Trainer
     trainer = pl.Trainer(
         default_root_dir=default_root_dir,
@@ -154,6 +158,7 @@ def run(cfg: DictConfig) -> None:
         deterministic=cfg.train.deterministic,
         val_check_interval=cfg.logging.val_check_interval,
         progress_bar_refresh_rate=cfg.logging.progress_bar_refresh_rate,
+        profiler=profiler,
         **cfg.train.pl_trainer,
     )
     log_hyperparameters(trainer=trainer, model=model, cfg=cfg)

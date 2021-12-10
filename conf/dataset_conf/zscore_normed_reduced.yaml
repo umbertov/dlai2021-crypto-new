@@ -51,3 +51,5 @@ minmax_scale_windows: False
 zscore_scale_windows: False
 future_window_length: 0
 return_dicts: False
+clamp_values: null
+channels_last: True

@@ -47,6 +47,7 @@ class DataframeDataset(TensorDataset):
         minmax_scale_windows=False,
         zscore_scale_windows=False,
         clamp_values=None,
+        channels_last=True,
     ):
         assert not (minmax_scale_windows and zscore_scale_windows)
         self.dataframe = dataframe
@@ -135,8 +136,14 @@ class DataframeDataset(TensorDataset):
         assert all(data.isfinite().all() for data in targets)
 
         if clamp_values is not None:
-            for t in [input_tensors] + targets:
-                torch.clamp(t, clamp_values.min, clamp_values.max, out=t)
+            input_tensors, *targets = [
+                torch.clamp(t, clamp_values.min, clamp_values.max)
+                for t in [input_tensors] + targets
+            ]
+        if not channels_last:
+            input_tensors, *targets = [
+                t.transpose(-1, -2) for t in [input_tensors] + targets
+            ]
 
         super().__init__(input_tensors, *targets)
 

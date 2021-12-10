@@ -1,15 +1,9 @@
 _target_: src.lit_models.TimeSeriesVAE
-name: tcn_vae
+name: transformer
 model:
-  _target_: src.models.TcnVAE
+  _target_: src.models.FeedForwardVAE
   num_inputs: ${length:${dataset_conf.input_columns}}
-  latent_size: 32
-  kernel_size: 2
-  num_channels: [16]
-  sequence_length: ${dataset_conf.window_length}
-  dropout: ${model.dropout}
-  stride: 1
-  channels_last: ${dataset_conf.channels_last}
+  latent_size: 2
 classification_loss_fn: null
 regression_loss_fn: null
 reconstruction_loss_fn:

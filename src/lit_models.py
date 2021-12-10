@@ -371,9 +371,14 @@ class TimeSeriesAutoEncoder(BaseTimeSeriesModule):
 
     def _reconstruction_epoch_end(self, random_step, mode: str):
         if self.reconstruction_loss_fn is not None:
-            plot = regression_plot_fig(
-                random_step["reconstruction"], random_step["inputs"]
+            reconstruction, inputs = (
+                random_step["reconstruction"],
+                random_step["inputs"],
             )
+            if not self.hparams.model.get("channels_last", False):
+                reconstruction = reconstruction.transpose(-1, -2)
+                inputs = inputs.transpose(-1, -2)
+            plot = regression_plot_fig(reconstruction, inputs)
             self.logger.experiment.log({f"{mode}/reconstruction_plot": plot})
 
 
