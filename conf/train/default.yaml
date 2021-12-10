@@ -1,5 +1,5 @@
 # reproducibility
-deterministic: False
+deterministic: True
 random_seed: 42
 
 # training

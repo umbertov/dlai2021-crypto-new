@@ -136,7 +136,7 @@ BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
 
 Strip = DataframeTransformer(remove_leading_trailing_nans)
 
-RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna(), name="RSI")
+RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
 
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
@@ -413,8 +413,45 @@ def red_or_green_candle(df):
     return df
 
 
+from dataclasses import dataclass
+
+
+@dataclass
+class CandleCenter:
+    OHLC: tuple[str, str, str, str] = ("Open", "High", "Low", "Close")
+    close: str = "Close"
+
+    def encode(self, df: pd.DataFrame) -> pd.DataFrame:
+        normed = np.log(df[list(self.OHLC)]).sub(np.log(df[self.OHLC[0]]), axis=0)
+        return normed
+
+    def decode(self, normed: pd.DataFrame) -> pd.DataFrame:
+        recons_open = normed[self.close].cumsum()
+        reconstructed = np.exp(
+            normed[list(self.OHLC)].add(recons_open.shift(1), axis=0)
+        )
+        return reconstructed
+
+
+def center_candles(df, scaler=CandleCenter()):
+    target_cols = [f"Centered{col}" for col in scaler.OHLC]
+    centered = scaler.encode(df)
+    # perform z score scaling (scale to be 0 mean and 1 variance)
+    # mean is already 0
+    std = centered.rolling(200).std()
+    std[std == 0] = 1
+    centered = (centered) / std
+    # scale candles to have range in [0,1], mean 0.5 and variance 0.25
+    centered = 0.5 + centered * 0.125
+    df[target_cols] = centered
+    return df
+
+
 feature_set_2 = Compose(
+    center_candles,
+    Strip(),
     LogOHLC(),
+    RSI(f"Close"),
     Sma("Open", 9),
     Std("Open", 9),
     Sma("Open", 26),
@@ -442,6 +479,10 @@ feature_set_2 = Compose(
     Shift("Log(High)", target_column="Log(FutureHigh)"),
     Shift("Log(Low)", target_column="Log(FutureLow)"),
     Shift("Log(Close)", target_column="Log(FutureClose)"),
+    Shift("CenteredOpen", target_column="CenteredFutureOpen"),
+    Shift("CenteredHigh", target_column="CenteredFutureHigh"),
+    Shift("CenteredLow", target_column="CenteredFutureLow"),
+    Shift("CenteredClose", target_column="CenteredFutureClose"),
 )
 
 feature_set_2_reader = lambda: Compose(
@@ -576,8 +617,9 @@ def zscore_by_open(period):
     return f
 
 
-zscore_by_open_reader = lambda: Compose(
+zscore_by_open_reader = lambda resample: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+    Resample(resample),
     LogPctChange(col="Open"),
     zscore_by_open(period=100),
     Shift("Zscore100(Open)", target_column="FutureOpen"),
@@ -586,6 +628,7 @@ zscore_by_open_reader = lambda: Compose(
     Shift("Zscore100(Close)", target_column="FutureClose"),
     Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
     Strip(),
+    lambda df: df.dropna(),
     DebugIfNan(),
 )
 

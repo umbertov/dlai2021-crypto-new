@@ -1,0 +1,35 @@
+defaults:
+  - data_path: yahoofinance5min.yaml
+
+window_length: 3
+dataset_reader:
+  _target_: src.dataset_readers.resampling_feature_set_2_reader
+  resample: 30min
+
+input_columns:
+  - CenteredOpen
+  - CenteredHigh
+  - CenteredLow
+  - CenteredClose
+continuous_targets:
+  - CenteredFutureOpen
+  - CenteredFutureHigh
+  - CenteredFutureLow
+  - CenteredFutureClose
+categorical_targets:
+  - FutureRedOrGreen
+n_classes: 3
+train_period:
+  start: 2021-05-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01
+window_skip: 1
+minmax_scale_windows: False
+zscore_scale_windows: False
+future_window_length: 0
+return_dicts: True
+clamp_values:
+  min: 0
+  max: 1

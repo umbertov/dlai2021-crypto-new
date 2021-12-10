@@ -1,0 +1,40 @@
+_target_: src.lit_models.TimeSeriesAutoEncoder
+name: transformer
+model:
+  _target_: src.models.AutoEncoder
+  encoder:
+    _target_: src.models.TransformerForecaster
+    in_size: ${length:${dataset_conf.input_columns}}
+    embedding:
+      _target_:
+        src.models.TCNWrapper
+      num_inputs: ${length:${dataset_conf.input_columns}}
+      num_channels:
+        - 16
+        - 32
+        - ${model.model.encoder.transformer.feature_size}
+      kernel_size: 2
+      dropout: ${model.dropout}
+    transformer:
+      _target_: src.models.CausalTransformer
+      feature_size: 64
+      feedforward_size: 512
+      n_heads: 4
+      num_layers: 1
+      dropout: ${model.dropout}
+      positional_encoding: sine
+    embed_by_repetition: False
+  decoder:
+    _target_: torch.nn.Linear
+    in_features: ${model.model.encoder.transformer.feature_size}
+    out_features: ${length:${dataset_conf.input_columns}}
+classification_loss_fn: null
+regression_loss_fn: null
+reconstruction_loss_fn:
+  _target_: torch.nn.MSELoss
+reconstruction_loss_weight:
+  1
+dropout: 0.1
+activation:
+  torch.nn.ReLU
+flatten_input: False

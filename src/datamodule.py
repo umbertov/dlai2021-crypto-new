@@ -111,7 +111,7 @@ class MyDataModule(pl.LightningDataModule):
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
 def main(conf: omegaconf.DictConfig):
-    global datamodule, cfg, model
+    global datamodule, cfg, model, model_out
     cfg = conf.copy()
     model = hydra.utils.instantiate(
         cfg.model,
@@ -133,11 +133,11 @@ def main(conf: omegaconf.DictConfig):
         else:
             cat, cont = targets[0], None
         model_out = model(ins, categorical_targets=cat, continuous_targets=cont)
-    model.training_epoch_end([model_out])
 
 
 if __name__ == "__main__":
     datamodule = None
     cfg = None
     model = None
+    model_out = None
     main()

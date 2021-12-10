@@ -4,7 +4,7 @@ model:
   _target_: src.models.ClassifierWithAutoEncoder
   n_classes: ${dataset_conf.n_classes}
   autoencoder:
-    _target_: src.models.AutoEncoder
+    _target_: src.models.FeedForwardAutoEncoder
     in_size: ${length:${dataset_conf.input_columns}}
     window_length: ${dataset_conf.window_length}
     hidden_sizes: [20,10,5]

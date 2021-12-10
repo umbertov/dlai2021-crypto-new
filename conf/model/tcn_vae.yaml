@@ -1,0 +1,20 @@
+_target_: src.lit_models.TimeSeriesVAE
+name: transformer
+model:
+  _target_: src.models.TcnVAE
+  num_inputs: ${length:${dataset_conf.input_columns}}
+  latent_size: 2
+  kernel_size: 2
+  num_channels: [16]
+classification_loss_fn: null
+regression_loss_fn: null
+reconstruction_loss_fn:
+  _target_: torch.nn.MSELoss
+  reduction: sum
+variational_beta: 1
+reconstruction_loss_weight:
+  1
+dropout: 0.1
+activation:
+  torch.nn.ReLU
+flatten_input: False

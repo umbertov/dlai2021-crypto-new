@@ -9,9 +9,10 @@ defaults:
   - dataset_conf: default
   - hydra: default
   - logging: default
+  - losses: default
   - model: default
   - lr_scheduler: default
-  - optim: default
+  - optim: adam
   - train: default
   #### KEEP THIS AS THE LAST
   - experiment: default

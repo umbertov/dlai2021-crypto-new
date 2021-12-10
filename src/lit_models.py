@@ -23,11 +23,102 @@ import hydra
 import omegaconf
 
 
-def ohlc_prod_mse_loss(x, y):
-    loss = F.mse_loss(x, y, reduction="none")
-    assert loss.dim() == 3
-    loss = loss.prod(dim=-1)
-    return loss.sum()
+def notnone(x):
+    return x is not None
+
+
+def regression_plot_fig(regression_outs, targets):
+    regression_out = regression_outs[0]
+    target = targets[0]
+    assert regression_out.shape == target.shape
+    length, n_channels = regression_out.shape
+
+    if n_channels == len("ohlc"):
+        return plot_multi_ohlcv(prediction=regression_out.cpu(), truth=target.cpu())
+
+    else:
+        fig = make_subplots(
+            rows=n_channels,
+            cols=1,
+            subplot_titles=[f"Channel #{i}" for i in range(n_channels)],
+        )
+        for channel in range(n_channels):
+            traces = plot_multi_lines(
+                truth=target[:, channel].view(-1).cpu(),
+                prediction=regression_out[:, channel].view(-1).cpu(),
+            )
+            for trace in traces:
+                fig.add_trace(trace, row=channel + 1, col=1)
+        return fig
+
+
+def confusion_matrix_plot(step_outputs, n_classes):
+    assert step_outputs
+    # Log confusion matrix for the training data
+    confusion_matrix = (
+        compute_confusion_matrix(
+            torch.cat(
+                [
+                    step["classification_logits"]
+                    for step in step_outputs
+                    if step is not None
+                ],
+                dim=0,
+            ),
+            torch.cat(
+                [
+                    step["categorical_targets"]
+                    for step in step_outputs
+                    if step is not None
+                ],
+                dim=0,
+            ),
+            n_classes=n_classes,
+        )
+        .cpu()
+        .numpy()
+    )
+    plot = confusion_matrix_fig(
+        confusion_matrix,
+        labels=list(range(n_classes)),
+    )
+    return plot
+
+
+# def time_discount_mse_loss(x, y, sequence_length, alpha=1.1):
+#     """x,y : (Batch, Seqlen, Channels)"""
+#     assert x.shape == y.shape
+#     losses = F.mse_loss(x, y, reduction="none")
+#
+#     # exponentially rising multiplicative coefficients
+#     _, seqlen, _ = x.shape
+#     coefficients = alpha ** (torch.arange(seqlen, device=x.device) - seqlen + 1)
+#     coefficients = coefficients[None, :, None]
+#
+#     return torch.mean(losses * coefficients)
+#
+#
+# class TimeDiscountMseLoss(nn.Module):
+#     def __init__(self, alpha=1.1):
+#         super().__init__()
+#         self.alpha = alpha
+#
+#     def forward(self, x, y):
+#         sequence_length = x.size(1)
+#         return time_discount_mse_loss(
+#             x, y, sequence_length=sequence_length, alpha=self.alpha
+#         )
+#
+#
+# def ohlc_prod_mse_loss(x, y):
+#     loss = F.mse_loss(x, y, reduction="none")
+#     assert loss.dim() == 3
+#     loss = loss.prod(dim=-1)
+#     return loss.sum()
+#
+#
+# def OhlcProdMseLoss():
+#     return ohlc_prod_mse_loss
 
 
 def compute_accuracy(logits, targets, n_classes):
@@ -57,10 +148,7 @@ def regression_baseline_score(
     return loss_fn(targets[:, 1:], targets[:, :-1])
 
 
-from vector_quantize_pytorch import VectorQuantize
-
-
-class CandlestickVqVAE(pl.LightningModule):
+class BaseTimeSeriesModule(pl.LightningModule):
     def __init__(
         self,
         *args,
@@ -68,37 +156,16 @@ class CandlestickVqVAE(pl.LightningModule):
     ) -> None:
         super().__init__()
         self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
-
-        self.quantizer = hydra.utils.instantiate(
-            self.hparams.quantizer, _recursive_=True, _convert_="partial"
-        )
-
-    def forward(self, inputs, *_, **__):
-        quantized, indices, commitment_loss = self.quantizer(inputs)
-        loss = F.mse_loss(inputs, quantized)
-        return {"reconstruction": quantized, "loss": loss}
-
-
-class TimeSeriesModule(pl.LightningModule):
-    def __init__(
-        self,
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__()
-        self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
-
-        if "quantizer" in kwargs:
-            self.quantizer = hydra.utils.instantiate(
-                self.hparams.quantizer, _recursive_=True, _convert_="partial"
-            )
-        else:
-            self.quantizer = None
 
         self.model = hydra.utils.instantiate(
             self.hparams.model, _recursive_=True, _convert_="partial"
         )
         self.flatten_input = kwargs.get("flatten_input", True)
+
+        self.regression_loss_fn = hydra.utils.instantiate(
+            self.hparams.regression_loss_fn,
+            _recursive_=True,
+        )
 
         self.classification_loss_fn = hydra.utils.instantiate(
             self.hparams.classification_loss_fn
@@ -107,107 +174,30 @@ class TimeSeriesModule(pl.LightningModule):
             self.hparams.reconstruction_loss_fn,
             _recursive_=True,
         )
-        self.regression_loss_fn = hydra.utils.instantiate(
-            self.hparams.regression_loss_fn,
-            _recursive_=True,
-        )
 
-    def _regression_forward(self, regression_output, continuous_targets):
-        regression_loss = self.regression_loss_fn(regression_output, continuous_targets)
-        baseline_loss = regression_baseline_score(
-            self.regression_loss_fn, continuous_targets
-        )
-        return {
-            "metrics/reg_loss": regression_loss,
-            "metrics/baseline_reg_loss": baseline_loss,
-            "continuous_targets": continuous_targets,
-        }
-
-    def _future_regression_forward(
-        self, future_regression_output, future_continuous_targets
-    ):
-        out = self._regression_forward(
-            future_regression_output, future_continuous_targets
-        )
-        return {
-            "metrics/future_reg_loss": out["metrics/reg_loss"],
-            "metrics/future_baseline_reg_loss": out["metrics/reg_loss"],
-            "future_continuous_targets": out["continuous_targets"],
-        }
-
-    def _reconstruction_forward(self, reconstruction, inputs):
-        reconstruction_loss = (
-            self.hparams.reconstruction_loss_weight  # type: ignore
-            * self.reconstruction_loss_fn(reconstruction.view(-1), inputs.view(-1))
-        )
-        return {
-            "metrics/rec_loss": reconstruction_loss,
-            "reconstruction": reconstruction,
-        }
-
-    def _classification_forward(self, classification_logits, categorical_targets):
-        if classification_logits.size(1) == 1:  # seq. len of 1
-            categorical_targets = categorical_targets[:, [-1], :]
-        classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
-        classification_loss = self.classification_loss_fn(
-            classification_logits,
-            categorical_targets.view(-1),
-        )
-        return {
-            "metrics/clf_loss": classification_loss,
-            "categorical_targets": categorical_targets,
-            "metrics/accuracy": compute_accuracy(
-                classification_logits,
-                categorical_targets.view(-1),
-                n_classes=self.hparams.model.n_classes,
-            ),
-            "classification_logits": classification_logits,
-        }
-
-    def forward(
-        self,
-        inputs: torch.Tensor,
-        continuous_targets: torch.Tensor = None,
-        categorical_targets: torch.Tensor = None,
-        future_continuous_targets: torch.Tensor = None,
-    ):
+    def forward(self, inputs: torch.Tensor, **kwargs):
 
         out = dict(inputs=inputs)
 
-        if self.quantizer is not None:
-            inputs_embedded, indices, commitment_loss = self.quantizer(inputs)
-        else:
-            inputs_embedded = inputs
-
-        model_out = self.model(inputs_embedded)
-        classification_logits = model_out.get("classification_logits", None)
-        regression_output = model_out.get("regression_output", None)
-        reconstruction = model_out.get("reconstruction", None)
-
-        if reconstruction is None and self.quantizer is not None:
-            reconstruction = inputs_embedded
+        model_out = self.model(inputs)
 
         out.update(model_out)
 
-        if regression_output is not None and continuous_targets is not None:
-            out.update(self._regression_forward(regression_output, continuous_targets))
-            assert future_continuous_targets is not None
-            if future_continuous_targets is not None:
-                batch, future_window_length, channesl = future_continuous_targets.shape
-                forecast = self.model.forecast(inputs, future_window_length)
-                forecast = forecast[:, -future_window_length:]
-                out.update(
-                    self._future_regression_forward(forecast, future_continuous_targets)
-                )
-                out["forecast"] = forecast
-
-        if reconstruction is not None:
-            out.update(self._reconstruction_forward(reconstruction, inputs))
-
-        if classification_logits is not None and categorical_targets is not None:
-            out.update(
-                self._classification_forward(classification_logits, categorical_targets)
+        results = list(
+            filter(
+                notnone,
+                [
+                    self._regression_forward(**model_out, **kwargs),
+                    self._future_regression_forward(**model_out, **kwargs),
+                    self._reconstruction_forward(**model_out, inputs=inputs),
+                    self._classification_forward(**model_out, **kwargs),
+                ],
             )
+        )
+        assert len(results) > 0
+        assert not all(x is None for x in results)
+        for d in results:
+            out.update(d)
 
         losses = [
             value
@@ -219,7 +209,7 @@ class TimeSeriesModule(pl.LightningModule):
             out["metrics/loss"] = out["loss"]
         return {k: v.detach() if k != "loss" else v for k, v in out.items()}
 
-    def training_step(self, batch, batch_idx):
+    def step(self, batch, batch_idx, mode):
         if isinstance(batch, dict):
             step_result = self.forward(**batch)
         elif isinstance(batch, list):
@@ -227,27 +217,18 @@ class TimeSeriesModule(pl.LightningModule):
         else:
             step_result = self.forward(batch)
         metrics = {
-            f"train/{key.split('/')[1]}": value
+            f"{mode}/{key.split('/')[1]}": value
             for key, value in step_result.items()
             if key.startswith("metrics/")
         }
         self.log_dict(metrics, on_step=False, on_epoch=True, prog_bar=True)
         return step_result
 
+    def training_step(self, batch, batch_idx):
+        return self.step(batch, batch_idx, mode="train")
+
     def validation_step(self, batch, batch_idx):
-        if isinstance(batch, dict):
-            step_result = self.forward(**batch)
-        elif isinstance(batch, list):
-            step_result = self.forward(*batch)
-        else:
-            step_result = self.forward(batch)
-        metrics = {
-            f"val/{key.split('/')[1]}": value
-            for key, value in step_result.items()
-            if key.startswith("metrics/")
-        }
-        self.log_dict(metrics, on_step=False, on_epoch=True, prog_bar=True)
-        return step_result
+        return self.step(batch, batch_idx, mode="val")
 
     def configure_optimizers(
         self,
@@ -280,120 +261,175 @@ class TimeSeriesModule(pl.LightningModule):
         return [opt], [scheduler]
 
     def training_epoch_end(self, step_outputs):
+        self._classifier_epoch_end(step_outputs, mode="train")
         random_step = random.choice(step_outputs)
-        if self.classification_loss_fn is not None:
-            confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
-            self.logger.experiment.log(
-                {"train/confusion_matrix": confusion_matrix_plot}
-            )
-        if self.regression_loss_fn is not None:
-            plot = self._regression_plot_fig(
-                random_step["regression_output"], random_step["continuous_targets"]
-            )
-            self.logger.experiment.log({"train/prediction_plot": plot})
-            if "forecast" in random_step.keys():
-                plot = self._regression_plot_fig(
-                    random_step["forecast"], random_step["future_continuous_targets"]
-                )
-                self.logger.experiment.log({"train/forecast_plot": plot})
-        if self.reconstruction_loss_fn is not None:
-            plot = self._regression_plot_fig(
-                random_step["reconstruction"], random_step["inputs"]
-            )
-            self.logger.experiment.log({"train/reconstruction_plot": plot})
+        self._regression_epoch_end(random_step, mode="train")
+        self._reconstruction_epoch_end(random_step, mode="train")
 
     def validation_epoch_end(self, step_outputs):
+        self._classifier_epoch_end(step_outputs, mode="val")
         random_step = random.choice(step_outputs)
-        if self.classification_loss_fn is not None:
-            confusion_matrix_plot = self._confusion_matrix_plot(step_outputs)
-            self.logger.experiment.log({"val/confusion_matrix": confusion_matrix_plot})
+        self._regression_epoch_end(random_step, mode="val")
+        self._reconstruction_epoch_end(random_step, mode="val")
+
+    #### EPOCH ENDS
+    def _regression_epoch_end(self, step_outputs, mode: str):
+        pass
+
+    def _classifier_epoch_end(self, step_outputs, mode: str):
+        pass
+
+    def _reconstruction_epoch_end(self, random_step, mode: str):
+        pass
+
+    #### FORWARDS
+    def _regression_forward(self, **_):
+        return None
+
+    def _future_regression_forward(self, **_):
+        return None
+
+    def _reconstruction_forward(self, **_):
+        return None
+
+    def _classification_forward(self, **_):
+        return None
+
+    #### MISC
+    # def on_after_backward(self, *args, **kwargs):
+    #     # nan params
+    #     if any(p.isnan().any().item() for p in self.parameters()):
+    #         import ipdb
+
+    #         ipdb.set_trace()
+    #     # nan gradients
+    #     if any(
+    #         p.grad.isnan().any().item() for p in self.parameters() if p.grad is not None
+    #     ):
+    #         import ipdb
+
+    #         ipdb.set_trace()
+    #     return super().on_after_backward(*args, **kwargs)
+
+
+class TimeSeriesRegressor(BaseTimeSeriesModule):
+    def _regression_forward(self, regression_output=None, continuous_targets=None, **_):
+        if regression_output is None or continuous_targets is None:
+            return None
+        regression_loss = self.regression_loss_fn(regression_output, continuous_targets)
+        baseline_loss = regression_baseline_score(
+            self.regression_loss_fn, continuous_targets
+        )
+        return {
+            "metrics/reg_loss": regression_loss,
+            "metrics/baseline_reg_loss": baseline_loss,
+            "continuous_targets": continuous_targets,
+        }
+
+    def _future_regression_forward(
+        self, future_regression_output=None, future_continuous_targets=None, **_
+    ):
+        out = self._regression_forward(
+            regression_output=future_regression_output,
+            continuous_targets=future_continuous_targets,
+        )
+        return (
+            {
+                "metrics/future_reg_loss": out["metrics/reg_loss"],
+                "metrics/future_baseline_reg_loss": out["metrics/reg_loss"],
+                "future_continuous_targets": out["continuous_targets"],
+            }
+            if out is not None
+            else None
+        )
+
+    def _regression_epoch_end(self, random_step, mode: str):
         if self.regression_loss_fn is not None:
-            plot = self._regression_plot_fig(
+            plot = regression_plot_fig(
                 random_step["regression_output"], random_step["continuous_targets"]
             )
-            self.logger.experiment.log({"val/prediction_plot": plot})
+            self.logger.experiment.log({f"{mode}/prediction_plot": plot})
             if "forecast" in random_step.keys():
-                plot = self._regression_plot_fig(
+                plot = regression_plot_fig(
                     random_step["forecast"], random_step["future_continuous_targets"]
                 )
-                self.logger.experiment.log({"val/forecast_plot": plot})
+                self.logger.experiment.log({f"{mode}/forecast_plot": plot})
 
+
+class TimeSeriesAutoEncoder(BaseTimeSeriesModule):
+    def _reconstruction_forward(self, inputs, reconstruction=None, **_):
+        if reconstruction is None:
+            return None
+        reconstruction_loss = self.reconstruction_loss_fn(
+            reconstruction.view(-1), inputs.view(-1)
+        )
+
+        return {
+            "metrics/rec_loss": reconstruction_loss,
+            "reconstruction": reconstruction,
+        }
+
+    def _reconstruction_epoch_end(self, random_step, mode: str):
         if self.reconstruction_loss_fn is not None:
-            plot = self._regression_plot_fig(
+            plot = regression_plot_fig(
                 random_step["reconstruction"], random_step["inputs"]
             )
-            self.logger.experiment.log({"val/reconstruction_plot": plot})
+            self.logger.experiment.log({f"{mode}/reconstruction_plot": plot})
 
-    def _regression_plot_fig(self, regression_outs, targets):
-        regression_out = regression_outs[0]
-        target = targets[0]
-        assert regression_out.shape == target.shape
-        length, n_channels = regression_out.shape
 
-        if n_channels == len("ohlc"):
-            return plot_multi_ohlcv(prediction=regression_out.cpu(), truth=target.cpu())
+class TimeSeriesVAE(TimeSeriesAutoEncoder):
+    def _reconstruction_forward(
+        self, inputs, reconstruction, latent_mean, latent_logvar
+    ):
+        recon_loss = self.reconstruction_loss_fn(
+            reconstruction.reshape(-1),
+            inputs.reshape(-1),
+        )
 
-        else:
-            fig = make_subplots(
-                rows=n_channels,
-                cols=1,
-                subplot_titles=[f"Channel #{i}" for i in range(n_channels)],
-            )
-            for channel in range(n_channels):
-                traces = plot_multi_lines(
-                    truth=target[:, channel].view(-1).cpu(),
-                    prediction=regression_out[:, channel].view(-1).cpu(),
-                )
-                for trace in traces:
-                    fig.add_trace(trace, row=channel + 1, col=1)
-            return fig
+        # You can look at the derivation of the KL term here https://arxiv.org/pdf/1907.08956.pdf
+        kl_divergence = (
+            -0.5
+            * torch.sum(1 + latent_logvar - latent_mean.pow(2) - latent_logvar.exp())
+        ) * self.hparams.variational_beta
+        return {
+            "metrics/rec_loss": recon_loss,
+            "metrics/kl_divergence_loss": kl_divergence,
+            "reconstruction": reconstruction,
+        }
 
-    def _confusion_matrix_plot(self, step_outputs):
-        assert step_outputs
-        # Log confusion matrix for the training data
-        confusion_matrix = (
-            compute_confusion_matrix(
-                torch.cat(
-                    [
-                        step["classification_logits"]
-                        for step in step_outputs
-                        if step is not None
-                    ],
-                    dim=0,
-                ),
-                torch.cat(
-                    [
-                        step["categorical_targets"]
-                        for step in step_outputs
-                        if step is not None
-                    ],
-                    dim=0,
-                ),
+
+class TimeSeriesClassifier(BaseTimeSeriesModule):
+    def _classification_forward(
+        self, classification_logits=None, categorical_targets=None, **_
+    ):
+        if classification_logits is None:
+            return None
+        if classification_logits.size(1) == 1:  # seq. len of 1
+            categorical_targets = categorical_targets[:, [-1], :]
+        classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
+        classification_loss = self.classification_loss_fn(
+            classification_logits,
+            categorical_targets.view(-1),
+        )
+        return {
+            "metrics/clf_loss": classification_loss,
+            "categorical_targets": categorical_targets,
+            "metrics/accuracy": compute_accuracy(
+                classification_logits,
+                categorical_targets.view(-1),
                 n_classes=self.hparams.model.n_classes,
+            ),
+            "classification_logits": classification_logits,
+        }
+
+    def _classifier_epoch_end(self, step_outputs, mode: str):
+        if self.classification_loss_fn is not None:
+            confusion_matrix_plot = confusion_matrix_plot(
+                step_outputs, self.hparams.model.n_classes
             )
-            .cpu()
-            .numpy()
-        )
-        plot = confusion_matrix_fig(
-            confusion_matrix,
-            labels=list(range(self.hparams.model.n_classes)),
-        )
-        return plot
-
-    def on_after_backward(self, *args, **kwargs):
-        # nan params
-        if any(p.isnan().any().item() for p in self.parameters()):
-            import ipdb
-
-            ipdb.set_trace()
-        # nan gradients
-        if any(
-            p.grad.isnan().any().item() for p in self.parameters() if p.grad is not None
-        ):
-            import ipdb
-
-            ipdb.set_trace()
-        return super().on_after_backward(*args, **kwargs)
+            self.logger.experiment.log(
+                {f"{mode}/confusion_matrix": confusion_matrix_plot}
+            )
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")

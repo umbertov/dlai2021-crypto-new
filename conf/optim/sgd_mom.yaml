@@ -1,0 +1,9 @@
+optimizer:
+  #  Adam-oriented deep learning
+  _target_: torch.optim.SGD
+  momentum: 0.9
+  lr: 0.001
+  weight_decay: 0
+
+use_lr_scheduler: ${lr_scheduler.use_lr_scheduler}
+lr_scheduler: ${lr_scheduler.scheduler}

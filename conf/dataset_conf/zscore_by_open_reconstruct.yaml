@@ -4,6 +4,7 @@ defaults:
 name: zscore_by_open_ohlcvtarget
 dataset_reader:
   _target_: src.dataset_readers.zscore_by_open_reader
+  resample: 5min
 
 input_columns:
   - Zscore100(Open)

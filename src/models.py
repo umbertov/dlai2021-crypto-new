@@ -1,19 +1,60 @@
 from einops.einops import rearrange, repeat
 import torch
+from torch.nn.utils.weight_norm import weight_norm
 from torch.optim.lr_scheduler import LambdaLR
 from torch import nn
 import torch.nn.init as I
 from torch.nn import functional as F
 import math
-
+from functools import reduce
+from operator import mul
 from typing import Callable, Optional
 from einops.layers.torch import Rearrange
+
+from src.tcn import TemporalConvNet
 
 
 class LambdaLayer(nn.Module):
     def __init__(self, f: Callable):
         super().__init__()
         self.forward = f
+
+
+def tuple_to_index(tup, names_to_classes):
+    result = 0
+    prev_classes = 1
+    for arg, n_classes in zip(tup, names_to_classes.values()):
+        result += arg * prev_classes
+        prev_classes = n_classes
+    return result
+
+
+def dict_to_index(dic, names_to_classes):
+    result = 0
+    prev_classes = 1
+    for name, n_classes in names_to_classes.items():
+        arg = dic[name]
+        result += arg * prev_classes
+        prev_classes = n_classes
+    return result
+
+
+class CartesianProdEmbedding(nn.Module):
+    def __init__(self, hidden_size, **names_to_n_classes):
+        super().__init__()
+        self.names_to_classes = names_to_n_classes
+        self.n_variables = len(names_to_n_classes)
+        self.total_n_embeddings = reduce(mul, names_to_n_classes.items())
+        self.embedding = nn.Embedding(self.total_n_embeddings, hidden_size)
+
+    def forward(self, *args, **kwargs):
+        if args:
+            embedding_idx = tuple_to_index(args, self.names_to_classes)
+        elif kwargs:
+            embedding_idx = dict_to_index(kwargs, self.names_to_classes)
+        else:
+            raise ValueError
+        return self.embedding(embedding_idx)
 
 
 def compute_forecast(predictor_model, initial_sequence, n_future_steps):
@@ -67,51 +108,111 @@ def get_linear_schedule_with_warmup(
 def NonLinear(
     in_size: int,
     hidden_size: int,
-    activation: nn.Module = nn.Sigmoid(),
+    activation: nn.Module = nn.ReLU(),
     dropout: float = 0.0,
 ) -> nn.Module:
     return nn.Sequential(
         nn.Linear(in_size, hidden_size, bias=False),
         nn.Dropout(dropout),
-        activation,
         Rearrange("batch seqlen channels -> batch channels seqlen"),
         nn.BatchNorm1d(hidden_size),
         Rearrange("batch channels seqlen -> batch seqlen channels"),
+        activation,
     )
 
 
-class OhlcvMSELoss(nn.Module):
-    def forward(self, x, y):
-        assert x.size(-1) == y.size(-1)
-        assert x.size(-1) == 4
-        losses = []
+class VariationalAutoEncoder(nn.Module):
+    def __init__(
+        self,
+        encoder,
+        decoder,
+        latent_size,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.latent_size = latent_size
 
-        losses.append(F.mse_loss(x, y))
-        x, y = x + 1e-15, y + 1e-15
+        self.tomean = nn.Linear(latent_size, latent_size)
+        self.tologstd = nn.Linear(latent_size, latent_size)
 
-        x_oc_ratio = torch.log((x[..., 0] / x[..., 3]) ** 2)
-        y_oc_ratio = torch.log((y[..., 0] / y[..., 3]) ** 2)
-        losses.append(F.mse_loss(x_oc_ratio, y_oc_ratio))
+    def forward(self, *args, **kwargs):
+        encoded = self.encoder(*args, **kwargs)
+        latent_mean, latent_logstd = self.tomean(encoded), self.tologstd(encoded)
+        latent = self.latent_sample(latent_mean, latent_logstd)
+        reconstruction = self.decoder(latent)
+        return {
+            "reconstruction": reconstruction,
+            "latent_mean": latent_mean,
+            "latent_logvar": latent_logstd,
+        }
 
-        x_oh_ratio = torch.log((x[..., 0] / x[..., 1]) ** 2)
-        y_oh_ratio = torch.log((y[..., 0] / y[..., 1]) ** 2)
-        losses.append(F.mse_loss(x_oh_ratio, y_oh_ratio))
+    def latent_sample(self, mu, logvar):
 
-        x_ol_ratio = torch.log((x[..., 0] / x[..., 2]) ** 2)
-        y_ol_ratio = torch.log((y[..., 0] / y[..., 2]) ** 2)
-        losses.append(F.mse_loss(x_ol_ratio, y_ol_ratio))
+        if self.training:
+            # Convert the logvar to std
+            std = (logvar * 0.5).exp()
 
-        x_ch_ratio = torch.log((x[..., 3] / x[..., 1]) ** 2)
-        y_ch_ratio = torch.log((y[..., 3] / y[..., 1]) ** 2)
-        losses.append(F.mse_loss(x_ch_ratio, y_ch_ratio))
+            # the reparameterization trick
+            return torch.distributions.Normal(loc=mu, scale=std).rsample()
 
-        x_cl_ratio = torch.log((x[..., 3] / x[..., 2]) ** 2)
-        y_cl_ratio = torch.log((y[..., 3] / y[..., 2]) ** 2)
-        losses.append(F.mse_loss(x_cl_ratio, y_cl_ratio))
+            # Or if you prefer to do it without a torch.distribution...
+            # std = logvar.mul(0.5).exp_()
+            # eps = torch.empty_like(std).normal_()
+            # return eps.mul(std).add_(mu)
+        else:
+            return mu
 
-        out = sum(losses) / len(losses)
-        assert not (torch.isnan(out).any() or torch.isinf(out).any())
-        return out
+
+class TcnVAE(VariationalAutoEncoder):
+    def __init__(
+        self, num_inputs, latent_size, num_channels=[16], dropout=0.0, kernel_size=2
+    ):
+        encoder = nn.Sequential(
+            TCNWrapper(
+                num_inputs=num_inputs,
+                num_channels=num_channels,
+                kernel_size=kernel_size,
+                dropout=dropout,
+            ),
+            nn.Linear(num_channels[-1], latent_size),
+        )
+        decoder_num_channels = list(reversed(num_channels))
+        decoder = nn.Sequential(
+            TCNWrapper(
+                num_inputs=latent_size,
+                num_channels=decoder_num_channels,
+                kernel_size=kernel_size,
+                transposed=True,
+                dropout=dropout,
+            ),
+            nn.Linear(decoder_num_channels[-1], num_inputs),
+            nn.Sigmoid(),
+        )
+        super().__init__(encoder=encoder, decoder=decoder, latent_size=latent_size)
+
+
+def vae_loss(recon_x, x, mu, logvar, variational_beta=1):
+    recon_loss = F.binary_cross_entropy(
+        recon_x.reshape(-1), x.reshape(-1), reduction="sum"
+    )
+
+    # You can look at the derivation of the KL term here https://arxiv.org/pdf/1907.08956.pdf
+    kldivergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return {
+        "loss": recon_loss + variational_beta * kldivergence,
+        "recon_loss": recon_loss,
+        "kl_divergence": variational_beta * kldivergence,
+    }
+
+
+def VaeLoss(variational_beta=1):
+    def f(*args, **kwargs):
+        return vae_loss(*args, **kwargs, variational_beta=variational_beta)
+
+    return f
 
 
 def init_gru(cell, gain=1):
@@ -160,11 +261,12 @@ class SinePositionalEncoding(nn.Module):
 class LearnedPositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(LearnedPositionalEncoding, self).__init__()
-        pe = torch.zeros(max_len, d_model)
+        pe = torch.empty(max_len, d_model)
         ### Seqlen, channels -> Batch, Seqlen, channels -> Seqlen, Batch, channels
         # pe = pe.unsqueeze(0).transpose(0, 1)
         ### Seqlen, channels -> Batch, Seqlen, channels
         pe = pe.unsqueeze(0)
+        nn.init.uniform_(pe, 0.02, 0.02)
         self.pe = nn.Parameter(pe)
 
     def forward(self, x):
@@ -177,6 +279,7 @@ class CausalTransformer(nn.Module):
     def __init__(
         self,
         feature_size=256,
+        feedforward_size=1024,
         num_layers=1,
         n_heads=4,
         dropout=0.1,
@@ -184,6 +287,7 @@ class CausalTransformer(nn.Module):
     ):
         super(CausalTransformer, self).__init__()
         self.feature_size = feature_size
+        self.feedforward_size = feedforward_size
 
         self.src_mask = None
         pos_encoder_class = (
@@ -193,7 +297,10 @@ class CausalTransformer(nn.Module):
         )
         self.pos_encoder = pos_encoder_class(feature_size)
         self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=feature_size, nhead=n_heads, dropout=dropout
+            d_model=feature_size,
+            nhead=n_heads,
+            dropout=dropout,
+            dim_feedforward=feedforward_size,
         )
         self.transformer_encoder = nn.TransformerEncoder(
             self.encoder_layer, num_layers=num_layers
@@ -229,6 +336,18 @@ class CausalTransformer(nn.Module):
         return mask
 
 
+class TCNWrapper(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.tcn = TemporalConvNet(*args, **kwargs)
+
+    def forward(self, x):
+        x = rearrange(x, "batch seq chan -> batch chan seq")
+        x = self.tcn(x)
+        x = rearrange(x, "batch chan seq -> batch seq chan")
+        return x
+
+
 class TransformerForecaster(nn.Module):
     forecast = compute_forecast
 
@@ -237,19 +356,23 @@ class TransformerForecaster(nn.Module):
         in_size,
         transformer: CausalTransformer,
         embed_by_repetition=False,
+        embedding=None,
     ):
         super().__init__()
         self.in_size = in_size
         self.embed_by_repetition = embed_by_repetition
+        assert embed_by_repetition in [True, False]
         if self.embed_by_repetition:
             assert transformer.feature_size % in_size == 0
             self.repeat = transformer.feature_size // in_size
+        elif embedding is None:
+            self.embedding = NonLinear(in_size, transformer.feature_size)
         else:
-            self.embedding = nn.Linear(in_size, transformer.feature_size, bias=False)
+            self.embedding = embedding
         self.transformer = transformer
         self.out_dim = transformer.feature_size
 
-    def forward(self, x, return_dict=True):
+    def forward(self, x, return_dict=False):
         if self.embed_by_repetition:
             embedded = repeat(x, "B L C -> B L (repeat C)", repeat=self.repeat)
         else:
@@ -375,6 +498,18 @@ class FeatureScaler(nn.Module):
 
 
 class AutoEncoder(nn.Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, x) -> dict:
+        encoded = self.encoder(x)
+        reconstruction = self.decoder(encoded)
+        return {"encoded": encoded, "reconstruction": reconstruction}
+
+
+class FeedForwardAutoEncoder(AutoEncoder):
     def __init__(
         self,
         in_size: int,
@@ -383,32 +518,28 @@ class AutoEncoder(nn.Module):
         dropout: float = 0.0,
         window_length: int = 1,
     ):
-        super().__init__()
         in_size *= window_length
-        self.in_size = in_size
-        self.hidden_sizes = hidden_sizes
-        self.activation = activation
-        self.dropout = dropout
-        self.window_length = window_length
 
-        self.encoder = SimpleFeedForward(
+        encoder = SimpleFeedForward(
             in_size,
             hidden_sizes,
             activation,
             dropout=dropout,
         )
         decoder_hidden_sizes = list(reversed(hidden_sizes)) + [in_size]
-        self.decoder = SimpleFeedForward(
+        decoder = SimpleFeedForward(
             hidden_sizes[-1],
             decoder_hidden_sizes,
             activation,
             dropout=dropout,
         )
+        super().__init__(encoder, decoder)
 
-    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
-        encoded = self.encoder(x)
-        reconstruction = self.decoder(encoded)
-        return encoded, reconstruction
+        self.in_size = in_size
+        self.hidden_sizes = hidden_sizes
+        self.activation = activation
+        self.dropout = dropout
+        self.window_length = window_length
 
 
 class Classifier(nn.Module):
@@ -441,7 +572,10 @@ class Classifier(nn.Module):
 
 class ClassifierWithAutoEncoder(nn.Module):
     def __init__(
-        self, autoencoder: AutoEncoder, n_classes: int, use_feature_scaler=False
+        self,
+        autoencoder: FeedForwardAutoEncoder,
+        n_classes: int,
+        use_feature_scaler=False,
     ):
         super().__init__()
         self.feature_scaler = (
@@ -488,7 +622,7 @@ class Regressor(nn.Module):
         features = self.feature_extractor(x)
         if isinstance(features, dict):
             encoded = features["transformer_out"]
-            out = features
+            out = {k: v.clone().detach() for k, v in features.items()}
         else:
             encoded = features
             out = dict()

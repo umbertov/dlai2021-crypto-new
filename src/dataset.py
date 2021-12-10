@@ -46,6 +46,7 @@ class DataframeDataset(TensorDataset):
         return_dicts=False,
         minmax_scale_windows=False,
         zscore_scale_windows=False,
+        clamp_values=None,
     ):
         assert not (minmax_scale_windows and zscore_scale_windows)
         self.dataframe = dataframe
@@ -104,7 +105,9 @@ class DataframeDataset(TensorDataset):
 
         if categorical_targets is not None:
             targets.append(
-                from_pandas(dataframe[categorical_targets]).long()[window_indices]
+                from_pandas(dataframe[categorical_targets].astype(int)).long()[
+                    window_indices
+                ]
             )
             self.tensor_names.append("categorical_targets")
         if future_window_length > 0:
@@ -127,6 +130,13 @@ class DataframeDataset(TensorDataset):
                 t = (t - mean) / std
             targets.append(t)
             self.tensor_names.append("future_continuous_targets")
+
+        assert input_tensors.isfinite().all()
+        assert all(data.isfinite().all() for data in targets)
+
+        if clamp_values is not None:
+            for t in [input_tensors] + targets:
+                torch.clamp(t, clamp_values.min, clamp_values.max, out=t)
 
         super().__init__(input_tensors, *targets)
 
