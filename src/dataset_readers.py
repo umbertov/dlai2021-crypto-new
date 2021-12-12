@@ -606,31 +606,66 @@ def Debug():
 from src.common.data_utils import ohlc_cols
 
 
-def zscore_by_open(period):
+def zscore_by_open(period, std_mult=1.0):
     def f(df):
         mean = df.Open.rolling(period).mean()
         std = df.Open.rolling(period).std()
         for col in ohlc_cols:
-            df[f"Zscore{period}({col})"] = df[col].sub(mean, axis=0).div(std, axis=0)
+            df[f"Zscore{period}({col})"] = (
+                df[col].sub(mean, axis=0).div(std * std_mult + 1e-10, axis=0)
+            )
         return df
 
     return f
 
 
-zscore_by_open_reader = lambda resample: Compose(
-    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
-    Resample(resample),
-    LogPctChange(col="Open"),
-    zscore_by_open(period=100),
-    Shift("Zscore100(Open)", target_column="FutureOpen"),
-    Shift("Zscore100(High)", target_column="FutureHigh"),
-    Shift("Zscore100(Low)", target_column="FutureLow"),
-    Shift("Zscore100(Close)", target_column="FutureClose"),
-    Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
-    Strip(),
-    lambda df: df.dropna(),
-    DebugIfNan(),
-)
+def zscore_by_ohlc4(period, std_mult=1.0):
+    def f(df):
+        ohlc4 = sum((df.Open, df.Close, df.High, df.Low)) / 4
+        mean = ohlc4.rolling(period).mean()
+        std = ohlc4.rolling(period).std()
+        for col in ohlc_cols:
+            df[f"Zscore{period}({col})"] = (
+                df[col].sub(mean, axis=0).div(std * std_mult + 1e-10, axis=0)
+            )
+        return df
+
+    return f
+
+
+def zscore_by_open_reader(resample, zscore_period=100, std_mult=1.0):
+    return Compose(
+        try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+        Resample(resample),
+        LogPctChange(col="Open"),
+        zscore_by_open(period=zscore_period, std_mult=std_mult),
+        Shift(f"Zscore{zscore_period}(Open)", target_column="FutureOpen"),
+        Shift(f"Zscore{zscore_period}(High)", target_column="FutureHigh"),
+        Shift(f"Zscore{zscore_period}(Low)", target_column="FutureLow"),
+        Shift(f"Zscore{zscore_period}(Close)", target_column="FutureClose"),
+        Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+        Strip(),
+        lambda df: df.dropna(),
+        DebugIfNan(),
+    )
+
+
+def zscore_by_ohlc4_reader(resample, zscore_period=100, std_mult=1.0):
+    return Compose(
+        try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+        Resample(resample),
+        LogPctChange(col="Open"),
+        zscore_by_ohlc4(period=zscore_period, std_mult=std_mult),
+        Shift(f"Zscore{zscore_period}(Open)", target_column="FutureOpen"),
+        Shift(f"Zscore{zscore_period}(High)", target_column="FutureHigh"),
+        Shift(f"Zscore{zscore_period}(Low)", target_column="FutureLow"),
+        Shift(f"Zscore{zscore_period}(Close)", target_column="FutureClose"),
+        Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+        Strip(),
+        lambda df: df.dropna(),
+        DebugIfNan(),
+    )
+
 
 zscore_reader = lambda normalize_colnames: Compose(
     example_reader,

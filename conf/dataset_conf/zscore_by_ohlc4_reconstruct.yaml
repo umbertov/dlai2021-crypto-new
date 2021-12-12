@@ -3,7 +3,7 @@ defaults:
 
 name: zscore_by_open_ohlcvtarget
 dataset_reader:
-  _target_: src.dataset_readers.zscore_by_open_reader
+  _target_: src.dataset_readers.zscore_by_ohlc4_reader
   resample: 5min
   zscore_period: 100
   std_mult: 2

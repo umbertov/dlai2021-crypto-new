@@ -2,8 +2,8 @@ name: cosine_annealing_warm_restarts
 use_lr_scheduler: True
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
-  T_0: 100
-  T_mult: 1
+  T_0: 500
+  T_mult: 2
   eta_min: 0 # min value for the lr
   last_epoch: -1
   verbose: False

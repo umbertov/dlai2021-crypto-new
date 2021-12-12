@@ -5,8 +5,8 @@ core:
     - mytag
 
 defaults:
-  - data: default
   - dataset_conf: default
+  - data: default
   - hydra: default
   - logging: default
   - losses: default

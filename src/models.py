@@ -188,6 +188,8 @@ class VariationalAutoEncoder(nn.Module):
         encoder,
         decoder,
         latent_size,
+        tomean=None,
+        tologvar=None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -195,12 +197,18 @@ class VariationalAutoEncoder(nn.Module):
         self.decoder = decoder
         self.latent_size = latent_size
 
-        self.tomean = nn.Linear(latent_size, latent_size)
-        self.tologstd = nn.Linear(latent_size, latent_size)
+        if tomean is None:
+            self.tomean = nn.Linear(latent_size, latent_size)
+        else:
+            self.tomean = tomean
+        if tologvar is None:
+            self.tologvar = nn.Linear(latent_size, latent_size)
+        else:
+            self.tologvar = tologvar
 
     def forward(self, *args, **kwargs):
         encoded = self.encoder(*args, **kwargs)
-        latent_mean, latent_logstd = self.tomean(encoded), self.tologstd(encoded)
+        latent_mean, latent_logstd = self.tomean(encoded), self.tologvar(encoded)
         latent = self.latent_sample(latent_mean, latent_logstd)
         reconstruction = self.decoder(latent)
         return {
@@ -229,16 +237,20 @@ class VariationalAutoEncoder(nn.Module):
 class FeedForwardVAE(VariationalAutoEncoder):
     def __init__(self, num_inputs, latent_size):
         encoder = nn.Sequential(
-            nn.Linear(num_inputs, latent_size),
-            nn.ReLU(),
+            NonLinear(num_inputs, num_inputs // 2, dropout=0.1),
         )
+        tomean = nn.Linear(num_inputs // 2, latent_size)
+        tologvar = nn.Linear(num_inputs // 2, latent_size)
         decoder = nn.Sequential(
-            nn.Linear(latent_size, latent_size),
-            nn.ReLU(),
-            nn.Linear(latent_size, num_inputs),
-            nn.ReLU(),
+            NonLinear(num_inputs // 2, num_inputs),
         )
-        super().__init__(encoder=encoder, decoder=decoder, latent_size=latent_size)
+        super().__init__(
+            encoder=encoder,
+            decoder=decoder,
+            latent_size=latent_size,
+            tomean=tomean,
+            tologvar=tologvar,
+        )
 
 
 class TcnVAE(VariationalAutoEncoder):
@@ -254,19 +266,11 @@ class TcnVAE(VariationalAutoEncoder):
         channels_last=False,
     ):
         TcnClass = TCNWrapper if channels_last else TemporalConvNet
-        unflatten_pattern = (
-            "batch (seq chan) -> batch seq chan"
-            if channels_last
-            else "batch (chan seq) -> batch chan seq"
-        )
-        transpose_channels = (
-            nn.Identity() if channels_last else Rearrange("x y z -> x z y")
-        )
         self.num_channels = num_channels
         self.latent_size = latent_size
         if stride > 1:
             flattened_size = num_channels[-1] * (
-                sequence_length / (2 ** (len(num_channels)))
+                sequence_length / (stride ** (len(num_channels)))
             )
         else:
             flattened_size = num_channels[-1] * sequence_length
@@ -288,13 +292,17 @@ class TcnVAE(VariationalAutoEncoder):
                 stride=stride,
             ),
             Rearrange("batch seq chan -> batch (seq chan)"),
-            nn.Linear(flattened_size, latent_size),
         )
+        tomean = nn.Linear(flattened_size, latent_size)
+        tologvar = nn.Linear(flattened_size, latent_size)
+
         decoder_num_channels = list(reversed(num_channels))
         decoder = nn.Sequential(
             nn.Linear(latent_size, flattened_size),
             Rearrange(
-                unflatten_pattern,
+                "batch (seq chan) -> batch seq chan"
+                if channels_last
+                else "batch (chan seq) -> batch chan seq",
                 seq=flattened_size // decoder_num_channels[0],
                 chan=decoder_num_channels[0],
             ),
@@ -309,7 +317,13 @@ class TcnVAE(VariationalAutoEncoder):
             ),
             nn.Conv1d(decoder_num_channels[-1], num_inputs, 1),
         )
-        super().__init__(encoder=encoder, decoder=decoder, latent_size=latent_size)
+        super().__init__(
+            encoder=encoder,
+            decoder=decoder,
+            latent_size=latent_size,
+            tomean=tomean,
+            tologvar=tologvar,
+        )
 
 
 def vae_loss(recon_x, x, mu, logvar, variational_beta=1):

@@ -61,7 +61,7 @@ class TemporalBlock(nn.Module):
             self.activation,
             self.dropout,
         )
-        self.init_weights()
+        # self.init_weights()
 
     def init_weights(self):
         self.conv1.weight.data.normal_(0, 0.01)
@@ -162,7 +162,7 @@ class TransposeTemporalBlock(nn.Module):
             self.relu,
             self.dropout,
         )
-        self.init_weights()
+        # self.init_weights()
 
     def init_weights(self):
         self.conv1.weight.data.normal_(0, 0.01)

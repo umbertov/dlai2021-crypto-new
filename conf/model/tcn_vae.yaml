@@ -14,7 +14,9 @@ classification_loss_fn: null
 regression_loss_fn: null
 reconstruction_loss_fn:
   _target_: torch.nn.MSELoss
-  reduction: sum
+  reduction: mean
+diff_loss: False
+norm_difference_loss: False
 variational_beta: 1
 reconstruction_loss_weight:
   1
