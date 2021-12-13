@@ -88,7 +88,7 @@ class DataframeDataset(TensorDataset):
 
         if zscore_scale_windows:
             mean = input_tensors.mean(axis=1, keepdim=True)
-            std = input_tensors.std(axis=1, keepdim=True)
+            std = input_tensors.std(axis=1, keepdim=True) + 1e-20
             if zscore_scale_windows == "by_open":
                 mean = mean[..., 0].unsqueeze(-1)
                 std = std[..., 0].unsqueeze(-1)

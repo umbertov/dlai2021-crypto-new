@@ -31,18 +31,18 @@ def regression_plot_fig(regression_outs, targets):
     regression_out = regression_outs[0]
     target = targets[0]
     assert regression_out.shape == target.shape
-    length, n_channels = regression_out.shape
+    length, num_channels = regression_out.shape
 
-    if n_channels == len("ohlc"):
+    if num_channels == len("ohlc"):
         return plot_multi_ohlcv(prediction=regression_out.cpu(), truth=target.cpu())
 
     else:
         fig = make_subplots(
-            rows=n_channels,
+            rows=num_channels,
             cols=1,
-            subplot_titles=[f"Channel #{i}" for i in range(n_channels)],
+            subplot_titles=[f"Channel #{i}" for i in range(num_channels)],
         )
-        for channel in range(n_channels):
+        for channel in range(num_channels):
             traces = plot_multi_lines(
                 truth=target[:, channel].view(-1).cpu(),
                 prediction=regression_out[:, channel].view(-1).cpu(),
@@ -50,39 +50,6 @@ def regression_plot_fig(regression_outs, targets):
             for trace in traces:
                 fig.add_trace(trace, row=channel + 1, col=1)
         return fig
-
-
-def confusion_matrix_plot(step_outputs, n_classes):
-    assert step_outputs
-    # Log confusion matrix for the training data
-    confusion_matrix = (
-        compute_confusion_matrix(
-            torch.cat(
-                [
-                    step["classification_logits"]
-                    for step in step_outputs
-                    if step is not None
-                ],
-                dim=0,
-            ),
-            torch.cat(
-                [
-                    step["categorical_targets"]
-                    for step in step_outputs
-                    if step is not None
-                ],
-                dim=0,
-            ),
-            n_classes=n_classes,
-        )
-        .cpu()
-        .numpy()
-    )
-    plot = confusion_matrix_fig(
-        confusion_matrix,
-        labels=list(range(n_classes)),
-    )
-    return plot
 
 
 # def time_discount_mse_loss(x, y, sequence_length, alpha=1.1):
@@ -121,21 +88,39 @@ def confusion_matrix_plot(step_outputs, n_classes):
 #     return ohlc_prod_mse_loss
 
 
-def compute_accuracy(logits, targets, n_classes):
+def compute_accuracy(logits, targets, num_classes):
     return M.accuracy(
         F.softmax(logits, dim=-1),
         targets,
         average="macro",
-        num_classes=n_classes,
+        num_classes=num_classes,
     )
 
 
-def compute_confusion_matrix(logits, targets, n_classes):
+def compute_classification_metrics(logits, targets, num_classes):
+    pred_probabilities = F.softmax(logits, dim=-1)
+    return {
+        "metrics/accuracy": M.accuracy(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/precision": M.precision(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/recall": M.recall(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/f1": M.f1(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+    }
+
+
+def compute_confusion_matrix(logits, targets, num_classes):
     return M.confusion_matrix(
         F.softmax(logits.detach(), dim=-1),
         targets.detach().view(-1),
         normalize="true",  # normalize over targets ('true') or predictions ('pred')
-        num_classes=n_classes,
+        num_classes=num_classes,
     )
 
 
@@ -393,10 +378,6 @@ class TimeSeriesVAE(TimeSeriesAutoEncoder):
             inputs.reshape(-1),
         )
 
-        # IDEA: compute reconstruction STD and compare it to the inputs one.
-        # their squared difference is a loss
-        # variance_loss = (reconstruction.std() - inputs.std()) ** 2
-
         # You can look at the derivation of the KL term here https://arxiv.org/pdf/1907.08956.pdf
         kl_divergence = (
             -0.5
@@ -428,6 +409,12 @@ class TimeSeriesVAE(TimeSeriesAutoEncoder):
             diff_loss = F.mse_loss(reconstruction_diff, inputs_diff, reduction="sum")
             out["metrics/diff_loss"] = diff_loss
 
+        # IDEA: compute reconstruction STD and compare it to the inputs one.
+        # their squared difference is a loss
+        if self.hparams.get("std_difference_loss", False):
+            std_difference = (reconstruction.std() - inputs.std()) ** 2
+            out["metrics/std_difference_loss"] = std_difference
+
         return out
 
 
@@ -447,22 +434,54 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         return {
             "metrics/clf_loss": classification_loss,
             "categorical_targets": categorical_targets,
-            "metrics/accuracy": compute_accuracy(
+            **compute_classification_metrics(
                 classification_logits,
                 categorical_targets.view(-1),
-                n_classes=self.hparams.model.n_classes,
+                num_classes=self.hparams.model.num_classes,
             ),
             "classification_logits": classification_logits,
         }
 
     def _classifier_epoch_end(self, step_outputs, mode: str):
         if self.classification_loss_fn is not None:
-            confusion_matrix_plot = confusion_matrix_plot(
-                step_outputs, self.hparams.model.n_classes
+            confusion_matrix_plot = self._confusion_matrix_plot(
+                step_outputs, self.hparams.model.num_classes
             )
             self.logger.experiment.log(
                 {f"{mode}/confusion_matrix": confusion_matrix_plot}
             )
+
+    def _confusion_matrix_plot(self, step_outputs, num_classes):
+        assert step_outputs
+        # Log confusion matrix for the training data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat(
+                    [
+                        step["classification_logits"]
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
+                ),
+                torch.cat(
+                    [
+                        step["categorical_targets"]
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
+                ),
+                num_classes=num_classes,
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(num_classes)),
+        )
+        return plot
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
@@ -477,7 +496,7 @@ def main(cfg: omegaconf.DictConfig):
     in_size = len(cfg.dataset_conf.input_columns)
     example_in_tensor = torch.randn(2, cfg.dataset_conf.window_length, in_size)
     example_categorical_tensor = torch.randint_like(
-        example_in_tensor[:, :, :], 0, cfg.dataset_conf.n_classes
+        example_in_tensor[:, :, :], 0, cfg.dataset_conf.num_classes
     ).long()
     example_continuous_tensor = torch.randn_like(example_in_tensor)
 

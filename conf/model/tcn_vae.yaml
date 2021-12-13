@@ -4,12 +4,14 @@ model:
   _target_: src.models.TcnVAE
   num_inputs: ${length:${dataset_conf.input_columns}}
   latent_size: 32
-  kernel_size: 2
-  num_channels: [16]
+  kernel_size: 3
+  num_channels: [16,32]
   sequence_length: ${dataset_conf.window_length}
   dropout: ${model.dropout}
-  stride: 1
+  compression: 2
   channels_last: ${dataset_conf.channels_last}
+  reconstruction_method: 'transpose_conv'
+  residual: True
 classification_loss_fn: null
 regression_loss_fn: null
 reconstruction_loss_fn:
@@ -17,6 +19,7 @@ reconstruction_loss_fn:
   reduction: mean
 diff_loss: False
 norm_difference_loss: False
+std_difference_loss: False
 variational_beta: 1
 reconstruction_loss_weight:
   1

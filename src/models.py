@@ -34,7 +34,7 @@ def calc_tcn_outs(input_length, num_channels, kernel_size=2, stride=1):
     num_levels = len(num_channels)
     for i in range(num_levels):
         dilation_size = 2 ** i
-        in_channels = 0 if i == 0 else num_channels[i - 1]
+        inum_channels = 0 if i == 0 else num_channels[i - 1]
         out_channels = num_channels[i]
         layers += [
             {
@@ -46,7 +46,7 @@ def calc_tcn_outs(input_length, num_channels, kernel_size=2, stride=1):
                     padding=dilation_size * (kernel_size - 1),
                 )
                 - 1,
-                "in_channels": in_channels,
+                "inum_channels": inum_channels,
                 "out_channels": out_channels,
             }
         ]
@@ -84,28 +84,28 @@ def LogScaledMSELoss(reduction="mean"):
 def tuple_to_index(tup, names_to_classes):
     result = 0
     prev_classes = 1
-    for arg, n_classes in zip(tup, names_to_classes.values()):
+    for arg, num_classes in zip(tup, names_to_classes.values()):
         result += arg * prev_classes
-        prev_classes = n_classes
+        prev_classes = num_classes
     return result
 
 
 def dict_to_index(dic, names_to_classes):
     result = 0
     prev_classes = 1
-    for name, n_classes in names_to_classes.items():
+    for name, num_classes in names_to_classes.items():
         arg = dic[name]
         result += arg * prev_classes
-        prev_classes = n_classes
+        prev_classes = num_classes
     return result
 
 
 class CartesianProdEmbedding(nn.Module):
-    def __init__(self, hidden_size, **names_to_n_classes):
+    def __init__(self, hidden_size, **names_to_num_classes):
         super().__init__()
-        self.names_to_classes = names_to_n_classes
-        self.n_variables = len(names_to_n_classes)
-        self.total_n_embeddings = reduce(mul, names_to_n_classes.items())
+        self.names_to_classes = names_to_num_classes
+        self.n_variables = len(names_to_num_classes)
+        self.total_n_embeddings = reduce(mul, names_to_num_classes.items())
         self.embedding = nn.Embedding(self.total_n_embeddings, hidden_size)
 
     def forward(self, *args, **kwargs):
@@ -171,13 +171,19 @@ def NonLinear(
     hidden_size: int,
     activation: nn.Module = nn.ReLU(),
     dropout: float = 0.0,
+    channels_last=True,
 ) -> nn.Module:
+    switch_channels = (
+        Rearrange("batch seqlen channels -> batch channels seqlen")
+        if channels_last
+        else nn.Identity()
+    )
     return nn.Sequential(
         nn.Linear(in_size, hidden_size, bias=False),
         nn.Dropout(dropout),
-        Rearrange("batch seqlen channels -> batch channels seqlen"),
+        switch_channels,
         nn.BatchNorm1d(hidden_size),
-        Rearrange("batch channels seqlen -> batch seqlen channels"),
+        switch_channels,
         activation,
     )
 
@@ -253,6 +259,61 @@ class FeedForwardVAE(VariationalAutoEncoder):
         )
 
 
+class TcnClassifier(nn.Module):
+    def __init__(
+        self,
+        num_inputs,
+        num_classes,
+        sequence_length,
+        num_channels,
+        kernel_size,
+        dropout=0.0,
+        compression=1,
+        channels_last=False,
+        residual=False,
+        clf_hidden_sizes=[20],
+        activation=nn.LeakyReLU(),
+    ):
+        super().__init__()
+        TcnClass = TCNWrapper if channels_last else TemporalConvNet
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
+        self.num_classes = num_classes
+        self.activation = activation
+        self.channels_last = channels_last
+
+        self.encoder = TcnClass(
+            num_inputs=num_inputs,
+            num_channels=num_channels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+            downsample=compression,
+            residual=residual,
+        )
+
+        # clf_layer_sizes = [num_channels[-1]] + clf_layer_sizes
+        # clf_layers = [
+        #     NonLinear(d1, d2, activation=self.activation, dropout=dropout)
+        #     for (d1, d2) in zip(clf_layer_sizes, clf_layer_sizes[1:])
+        # ]
+        # clf_layers = clf_layers + [nn.Linear(clf_layer_sizes[-1], self.num_classes)]
+        # self.classifier = nn.Sequential(*clf_layers)
+        self.classifier = SimpleFeedForward(
+            in_size=num_channels[-1],
+            hidden_sizes=clf_hidden_sizes,
+            out_size=self.num_classes,
+            dropout=dropout,
+            activation=activation,
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        if not self.channels_last:
+            encoded = encoded.transpose(-1, -2)
+        clf_out = self.classifier(encoded)
+        return {"classification_logits": clf_out}
+
+
 class TcnVAE(VariationalAutoEncoder):
     def __init__(
         self,
@@ -262,19 +323,18 @@ class TcnVAE(VariationalAutoEncoder):
         num_channels=[16],
         dropout=0.0,
         kernel_size=2,
-        stride=1,
+        compression=1,
         channels_last=False,
+        reconstruction_method="transpose_conv",
+        residual=False,
     ):
+        assert reconstruction_method in ("upsample", "transpose_conv")
         TcnClass = TCNWrapper if channels_last else TemporalConvNet
         self.num_channels = num_channels
         self.latent_size = latent_size
-        if stride > 1:
-            flattened_size = num_channels[-1] * (
-                sequence_length / (stride ** (len(num_channels)))
-            )
-        else:
-            flattened_size = num_channels[-1] * sequence_length
-        flattened_size = int(flattened_size)
+        flattened_size = int(
+            num_channels[-1] * (sequence_length / (compression ** (len(num_channels))))
+        )
         # if stride > 1:
         #     result = calc_tcn_outs(
         #         input_length=sequence_length,
@@ -289,7 +349,8 @@ class TcnVAE(VariationalAutoEncoder):
                 num_channels=num_channels,
                 kernel_size=kernel_size,
                 dropout=dropout,
-                stride=stride,
+                downsample=compression,
+                residual=residual,
             ),
             Rearrange("batch seq chan -> batch (seq chan)"),
         )
@@ -310,10 +371,11 @@ class TcnVAE(VariationalAutoEncoder):
                 num_inputs=decoder_num_channels[0],
                 num_channels=decoder_num_channels,
                 kernel_size=kernel_size,
-                transposed=True,
+                transposed=reconstruction_method == "transpose_conv",
+                stride=compression if reconstruction_method == "transpose_conv" else 1,
                 dropout=dropout,
-                stride=1,
-                upsample=stride,
+                upsample=compression if reconstruction_method == "upsample" else 1,
+                residual=residual,
             ),
             nn.Conv1d(decoder_num_channels[-1], num_inputs, 1),
         )
@@ -538,30 +600,47 @@ class SimpleFeedForward(nn.Module):
         self,
         in_size: int,
         hidden_sizes: list[int],
+        out_size=None,
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
         window_length: int = 1,
-        flatten_input=True,
+        flatten_input=False,
+        channels_last=True,
     ):
+        assert len(hidden_sizes) > 0 or out_size is not None
         super().__init__()
         if flatten_input:
             in_size *= window_length
         self.in_size = in_size
+        self.out_size = out_size
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.dropout = dropout
         self.window_length = window_length
-        self.out_dim = self.hidden_sizes[-1]
+        self.out_dim = self.hidden_sizes[-1] if len(self.hidden_sizes) > 0 else out_size
         self.flatten_input = flatten_input
+        self.channels_last = channels_last
 
         # list of tuples of adjacent layer sizes
-        projection_sizes = list(zip([in_size] + hidden_sizes, hidden_sizes))
+        sizes = [in_size] + hidden_sizes
+        projection_sizes = list(zip(sizes, sizes[1:]))
+
+        final_layer = (
+            nn.Linear(sizes[-1], out_size) if out_size is not None else nn.Identity()
+        )
 
         self.net = nn.Sequential(
             *[
-                NonLinear(s1, s2, activation=self.activation, dropout=self.dropout)
+                NonLinear(
+                    s1,
+                    s2,
+                    activation=self.activation,
+                    dropout=self.dropout,
+                    channels_last=channels_last,
+                )
                 for (s1, s2) in projection_sizes
-            ]
+            ],
+            final_layer,
         )
 
     def forward(self, x):
@@ -677,26 +756,19 @@ class Classifier(nn.Module):
     def __init__(
         self,
         feature_extractor: SimpleFeedForward,
-        n_classes: int,
+        num_classes: int,
         feature_dim: Optional[int] = None,
-        use_feature_scaler=False,
     ):
         super().__init__()
         feature_dim = (
             feature_dim if feature_dim is not None else feature_extractor.out_dim
         )
-        self.feature_scaler = (
-            FeatureScaler(feature_extractor.in_size)
-            if use_feature_scaler
-            else nn.Identity()
-        )
         self.feature_extractor = feature_extractor
-        self.n_classes = n_classes
+        self.num_classes = num_classes
         self.feature_dim = feature_dim
-        self.classifier = nn.Linear(feature_dim, n_classes)
+        self.classifier = nn.Linear(feature_dim, num_classes)
 
     def forward(self, x):
-        x = self.feature_scaler(x)
         features = self.feature_extractor(x)
         return {"classification_logits": self.classifier(features)}
 
@@ -705,16 +777,12 @@ class ClassifierWithAutoEncoder(nn.Module):
     def __init__(
         self,
         autoencoder: FeedForwardAutoEncoder,
-        n_classes: int,
-        use_feature_scaler=False,
+        num_classes: int,
     ):
         super().__init__()
-        self.feature_scaler = (
-            FeatureScaler(autoencoder.in_size) if use_feature_scaler else nn.Identity()
-        )
         self.autoencoder = autoencoder
-        self.n_classes = n_classes
-        self.classifier = nn.Linear(autoencoder.hidden_sizes[-1], n_classes)
+        self.num_classes = num_classes
+        self.classifier = nn.Linear(autoencoder.hidden_sizes[-1], num_classes)
 
     def forward(self, x):
         x = self.feature_scaler(x)
@@ -732,16 +800,10 @@ class Regressor(nn.Module):
         feature_extractor: SimpleFeedForward,
         n_outputs: int,
         feature_dim: Optional[int] = None,
-        use_feature_scaler=False,
     ):
         super().__init__()
         feature_dim = (
             feature_dim if feature_dim is not None else feature_extractor.out_dim
-        )
-        self.feature_scaler = (
-            FeatureScaler(feature_extractor.in_size)
-            if use_feature_scaler
-            else nn.Identity()
         )
         self.feature_extractor = feature_extractor
         self.n_outputs = n_outputs

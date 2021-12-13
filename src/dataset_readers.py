@@ -60,7 +60,7 @@ def read_yfinance_dataframe(path: str) -> pd.DataFrame:
     return dataframe
 
 
-def ColumnTrasnformer(function, name=None):
+def ColumnTransformer(function, name=None):
     if name is None:
         name = function.__name__
 
@@ -80,15 +80,6 @@ def ColumnTrasnformer(function, name=None):
         return apply
 
     return Transformation
-
-
-def AddColumns(column_dictionary):
-    def f(df):
-        for colname, function in column_dictionary.items():
-            df[colname] = function(df)
-        return df
-
-    return f
 
 
 def DataframeTransformer(function, **f_kwargs):
@@ -118,25 +109,25 @@ def remove_leading_trailing_nans(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[leading_index:trailing_index]
 
 
-Log = ColumnTrasnformer(np.log, name="Log")
-PctChange = ColumnTrasnformer(lambda col: col.pct_change() + 1, name="PctChange")
-Shift = ColumnTrasnformer(lambda col: col.shift(-1), name="Shift")
+Log = ColumnTransformer(np.log, name="Log")
+PctChange = ColumnTransformer(lambda col: col.pct_change() + 1, name="PctChange")
+Shift = ColumnTransformer(lambda col: col.shift(-1), name="Shift")
 LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
-Sma = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
+Sma = lambda col, n: ColumnTransformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
     col
 )
-Std = lambda col, n: ColumnTrasnformer(lambda df: df.rolling(n).std(), name=f"Std{n}")(
+Std = lambda col, n: ColumnTransformer(lambda df: df.rolling(n).std(), name=f"Std{n}")(
     col
 )
-RollingSum = ColumnTrasnformer(lambda col, window: col.rolling(window).sum())
-RollingMin = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
-RollingMax = ColumnTrasnformer(lambda col, window: col.rolling(window).min())
-Bins = ColumnTrasnformer(lambda col, bins: pd.cut(col, bins), name="Bins")
-BinCodes = ColumnTrasnformer(lambda col: col.values.codes, name="BinCodes")
+RollingSum = ColumnTransformer(lambda col, window: col.rolling(window).sum())
+RollingMin = ColumnTransformer(lambda col, window: col.rolling(window).min())
+RollingMax = ColumnTransformer(lambda col, window: col.rolling(window).min())
+Bins = ColumnTransformer(lambda col, bins: pd.cut(col, bins), name="Bins")
+BinCodes = ColumnTransformer(lambda col: col.values.codes, name="BinCodes")
 
 Strip = DataframeTransformer(remove_leading_trailing_nans)
 
-RSI = ColumnTrasnformer(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
+RSI = ColumnTransformer(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
 
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
@@ -155,7 +146,7 @@ def ZScoreNormalize(
     def transformer(df):
         return zscore_norm_dataframe(df, period=period, stddev_mult=stddev_mult, by=by)
 
-    return ColumnTrasnformer(transformer, name=f"Zscore{period}")(
+    return ColumnTransformer(transformer, name=f"Zscore{period}")(
         colname, target_column=target_column
     )
 
@@ -364,7 +355,7 @@ def qbins(df, q):
     return pd.cut(df, bins=bins)
 
 
-QBins = ColumnTrasnformer(qbins, name="QBins")
+QBins = ColumnTransformer(qbins, name="QBins")
 
 
 def zscore_normalize_target(period=200):
@@ -383,28 +374,11 @@ feature_set_1 = Compose(
     features_from_1h,
 )
 
-future_mean_std_target = AddColumns(
-    {
-        "FutureMean": lambda df: df.Open.rolling(10).mean().shift(-10),
-        "FutureStd": lambda df: df.Open.rolling(10).std().shift(-10),
-    }
-)
-
-ohlc4 = lambda df: (df.Open + df.Close + df.High + df.Low) / 4
-
-
-def NormOHLC4(columns):
-    return AddColumns(
-        {f"NormOHLC4({col})": lambda df: (df[col]) / (ohlc4(df)) for col in columns}
-    )
+ohlc4_mean = lambda df: (df.Open + df.Close + df.High + df.Low) / 4
 
 
 def LogOHLC():
     return Compose(*[Log(col) for col in ["Open", "High", "Low", "Close"]])
-
-
-def ShiftCols(cols):
-    return AddColumns({f"Future{col}": lambda df: np.log(df[col]) for col in cols})
 
 
 def red_or_green_candle(df):
@@ -447,6 +421,27 @@ def center_candles(df, scaler=CandleCenter()):
     return df
 
 
+def NormOHLC4(cols):
+    def f(df):
+        ohlc4 = ohlc4_mean(df)
+        for col in cols:
+            df[f"NormOHLC4({col})"] = df[col] / (ohlc4 + 1e-12)
+        return df
+
+    return f
+
+
+def FutureMeanStdTarget(period=10):
+    def future_mean_logvar_target(df):
+        ohlc4 = ohlc4_mean(df)
+        mean, std = ohlc4.rolling(period).mean(), ohlc4.rolling(period).std()
+        df["FutureMean"] = mean.shift(-period)
+        df["FutureStd"] = std.shift(-period)
+        return df
+
+    return future_mean_logvar_target
+
+
 feature_set_2 = Compose(
     center_candles,
     Strip(),
@@ -456,6 +451,7 @@ feature_set_2 = Compose(
     Std("Open", 9),
     Sma("Open", 26),
     Std("Open", 26),
+    Strip(),
     NormOHLC4(
         [
             "Open",
@@ -468,8 +464,9 @@ feature_set_2 = Compose(
             "Std26(Open)",
         ]
     ),
-    future_mean_std_target,
+    Strip(),
     red_or_green_candle,
+    FutureMeanStdTarget(period=10),
     Shift("RedOrGreen", target_column="FutureRedOrGreen"),
     Shift("Open", target_column="FutureOpen"),
     Shift("High", target_column="FutureHigh"),
@@ -483,13 +480,55 @@ feature_set_2 = Compose(
     Shift("CenteredHigh", target_column="CenteredFutureHigh"),
     Shift("CenteredLow", target_column="CenteredFutureLow"),
     Shift("CenteredClose", target_column="CenteredFutureClose"),
-)
-
-feature_set_2_reader = lambda: Compose(
-    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
-    feature_set_2,
     Strip(),
 )
+
+
+def target_categorical_trend(
+    df, trend_period=10, target_col="TargetCategorical", alpha=0.01
+):
+    ohlc4 = ohlc4_mean(df)
+    mean = ohlc4.rolling(trend_period).mean()
+    mean_next = ohlc4.shift(-trend_period)
+
+    greater = (mean_next > mean * (1 + alpha)).astype(int)
+    smaller = (mean_next < mean * (1 - alpha)).astype(int)
+
+    assert not (greater & smaller).any()
+
+    # combine signals in the [0,1,2] range
+    signals = greater - smaller + 1
+
+    if target_col is None:
+        return signals
+    df[target_col] = signals
+    return df
+
+
+def feature_set_2_trendprediction_reader(
+    resample="5min", trend_period=10, target_col="TargetCategorical", alpha=0.01
+):
+    return Compose(
+        try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+        Resample(resample),
+        feature_set_2,
+        lambda df: target_categorical_trend(
+            df, trend_period=trend_period, target_col=target_col, alpha=alpha
+        ),
+        Strip(),
+        lambda df: df.ffill(),
+    )
+
+
+def feature_set_2_reader(resample="5min"):
+    return Compose(
+        try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+        Resample(resample),
+        feature_set_2,
+        Strip(),
+        lambda df: df.ffill(),
+    )
+
 
 resampling_feature_set_2_reader = lambda resample: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
@@ -559,7 +598,7 @@ def zscore_normalize_columns(
     return Compose(*normalizers)
 
 
-MinMaxScaler = ColumnTrasnformer(minmax_scale_df, name="MinMax")
+MinMaxScaler = ColumnTransformer(minmax_scale_df, name="MinMax")
 
 minmax_ohlcv = Compose(
     MinMaxScaler("Open"),
@@ -573,19 +612,6 @@ minmax_reader = lambda: Compose(
     minmax_ohlcv,
     Shift("MinMax(Close)", target_column="FutureClose"),
 )
-
-
-def ZscoreBy(columns, period, by):
-    columns = {
-        f"Zscore{period}({colname})": lambda df: (
-            df[colname]
-            .sub(df[by].rolling(period).mean(), axis=0)
-            .div(df[by].rolling(period).std(), axis=0)
-        )
-        for colname in columns
-    }
-
-    return AddColumns(columns)
 
 
 def Debug():

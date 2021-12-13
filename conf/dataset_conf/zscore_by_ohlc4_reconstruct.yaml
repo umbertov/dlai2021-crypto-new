@@ -23,7 +23,7 @@ continuous_targets:
 categorical_targets: null
 n_classes: 3
 train_period:
-  start: 2018-05-01
+  start: 2017-01-01
   end: 2021-10-01
 val_period:
   start: ${dataset_conf.train_period.end}

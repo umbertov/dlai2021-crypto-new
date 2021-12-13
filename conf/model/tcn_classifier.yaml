@@ -1,0 +1,26 @@
+_target_: src.lit_models.TimeSeriesClassifier
+name: tcn_vae
+model:
+  _target_: src.models.TcnClassifier
+  num_inputs: ${length:${dataset_conf.input_columns}}
+  num_classes: ${dataset_conf.n_classes}
+  sequence_length: ${dataset_conf.window_length}
+  num_channels: [16,32]
+  dropout: ${model.dropout}
+  kernel_size: 3
+  compression: 1
+  channels_last: ${dataset_conf.channels_last}
+  residual: True
+  clf_hidden_sizes: [16]
+  activation: ${model.activation}
+classification_loss_fn: 
+  _target_: torch.nn.CrossEntropyLoss
+regression_loss_fn: null
+reconstruction_loss_fn: null
+variational_beta: 1
+reconstruction_loss_weight:
+  1
+dropout: 0.1
+activation:
+  _target_: torch.nn.LeakyReLU
+flatten_input: False

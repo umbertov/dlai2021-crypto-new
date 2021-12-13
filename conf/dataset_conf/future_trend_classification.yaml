@@ -3,8 +3,11 @@ defaults:
 
 window_length: 1
 dataset_reader:
-  _target_: src.dataset_readers.feature_set_2_reader
+  _target_: src.dataset_readers.feature_set_2_trendprediction_reader
   resample: 5min
+  trend_period: 10
+  target_col: TargetCategorical
+  alpha: 0.008
 
 input_columns:
   - NormOHLC4(Open)
@@ -15,14 +18,12 @@ input_columns:
   - NormOHLC4(Std9(Open))
   - NormOHLC4(Sma26(Open))
   - NormOHLC4(Std26(Open))
-continuous_targets:
-  - FutureMean
-  - FutureStd
+continuous_targets: null
 categorical_targets:
-  #  - TargetCategorical
+  - TargetCategorical
 n_classes: 3
 train_period:
-  start: 2021-05-01
+  start: 2017-01-01
   end: 2021-10-01
 val_period:
   start: ${dataset_conf.train_period.end}
