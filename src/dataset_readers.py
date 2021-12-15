@@ -488,11 +488,39 @@ def target_categorical_trend(
     df, trend_period=10, target_col="TargetCategorical", alpha=0.01
 ):
     ohlc4 = ohlc4_mean(df)
-    mean = ohlc4.rolling(trend_period).mean()
-    mean_next = ohlc4.shift(-trend_period)
+    mean_before = ohlc4.rolling(trend_period).mean()
+    mean_after = ohlc4.shift(-trend_period)
 
-    greater = (mean_next > mean * (1 + alpha)).astype(int)
-    smaller = (mean_next < mean * (1 - alpha)).astype(int)
+    ratio = mean_after / mean_before - 1
+
+    # greater = (mean_after > mean_before * (1 + alpha)).astype(int)
+    # smaller = (mean_after < mean_before * (1 - alpha)).astype(int)
+    greater = (ratio > alpha).astype(int)
+    smaller = (ratio < -alpha).astype(int)
+
+    assert not (greater & smaller).any()
+
+    # combine signals in the [0,1,2] range
+    signals = greater - smaller + 1
+
+    if target_col is None:
+        return signals
+    df[target_col] = signals
+    return df
+
+
+def target_categorical_adaptive_trend(
+    df, trend_period=10, target_col="TargetAdaCategorical", std_mult=1.0
+):
+    ohlc4 = ohlc4_mean(df)
+    mean_before = ohlc4.rolling(trend_period).mean()
+    mean_after = ohlc4.shift(-trend_period)
+
+    ratio = mean_after / mean_before - 1
+    alpha = std_mult * ratio.rolling(2 * trend_period).std()
+
+    greater = (ratio > alpha).astype(int)
+    smaller = (ratio < -alpha).astype(int)
 
     assert not (greater & smaller).any()
 
@@ -506,7 +534,11 @@ def target_categorical_trend(
 
 
 def feature_set_2_trendprediction_reader(
-    resample="5min", trend_period=10, target_col="TargetCategorical", alpha=0.01
+    resample="5min",
+    trend_period=10,
+    target_col="TargetCategorical",
+    alpha=0.01,
+    std_mult=1.0,
 ):
     return Compose(
         try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
@@ -514,6 +546,12 @@ def feature_set_2_trendprediction_reader(
         feature_set_2,
         lambda df: target_categorical_trend(
             df, trend_period=trend_period, target_col=target_col, alpha=alpha
+        ),
+        lambda df: target_categorical_adaptive_trend(
+            df,
+            trend_period=trend_period,
+            target_col="TargetAdaCategorical",
+            std_mult=std_mult,
         ),
         Strip(),
         lambda df: df.ffill(),

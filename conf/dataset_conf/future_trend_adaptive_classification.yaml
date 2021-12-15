@@ -4,9 +4,8 @@ defaults:
 dataset_reader:
   _target_: src.dataset_readers.feature_set_2_trendprediction_reader
   resample: 5min
-  trend_period: 10
-  target_col: TargetCategorical
-  alpha: 0.008
+  trend_period: 20
+  std_mult: 1.0
 
 input_columns:
   - NormOHLC4(Open)
@@ -17,7 +16,7 @@ input_columns:
   - NormOHLC4(Sma26(Open))
 continuous_targets: null
 categorical_targets:
-  - TargetCategorical
+  - TargetAdaCategorical
 n_classes: 3
 train_period:
   start: 2017-01-01

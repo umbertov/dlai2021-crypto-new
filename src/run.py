@@ -167,6 +167,7 @@ def run(cfg: DictConfig) -> None:
         hydra.utils.log.info(f"Starting training!")
         trainer.fit(model=model, datamodule=datamodule)
     except KeyboardInterrupt:
+        wandb_logger.experiment.finish()
         pass
 
     # hydra.utils.log.info(f"Starting testing!")

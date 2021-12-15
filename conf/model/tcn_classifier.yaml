@@ -14,7 +14,9 @@ model:
   clf_hidden_sizes: [16]
   activation: ${model.activation}
 classification_loss_fn: 
-  _target_: torch.nn.CrossEntropyLoss
+  _target_: src.dyn_loss.DynamicWeightCrossEntropy
+  n_classes: ${dataset_conf.n_classes}
+  decay: 0.8
 regression_loss_fn: null
 reconstruction_loss_fn: null
 variational_beta: 1

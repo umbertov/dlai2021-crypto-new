@@ -422,8 +422,8 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
     def _classification_forward(
         self, classification_logits=None, categorical_targets=None, **_
     ):
-        if classification_logits is None:
-            return None
+        if classification_logits is None or categorical_targets is None:
+            return dict(classification_logits=classification_logits)
         if classification_logits.size(1) == 1:  # seq. len of 1
             categorical_targets = categorical_targets[:, [-1], :]
         classification_logits = rearrange(classification_logits, "b l c -> (b l) c")

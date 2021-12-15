@@ -134,4 +134,4 @@ def plot_categorical_target(
     ax = df.Open.plot()
     for val, start, end in zip(df[target_col], df.index, df.index[1:]):
         ax.axvspan(start, end, facecolor=cmap[val], alpha=0.4)
-    return ax
+    return ax.figure
