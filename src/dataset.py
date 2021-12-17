@@ -111,26 +111,28 @@ class DataframeDataset(TensorDataset):
                 ]
             )
             self.tensor_names.append("categorical_targets")
-        if future_window_length > 0:
-            future_window_indices = torch.tensor(
-                [
-                    range(i + window_length, i + window_length + future_window_length)
-                    for i in range(
-                        len(dataframe) - window_length - future_window_length
-                    )
-                ][::window_skip],
-                dtype=torch.long,
-            )
-            self.future_window_indices = future_window_indices
-            t = from_pandas(dataframe[continuous_targets]).float()[
-                future_window_indices
-            ]
-            if minmax_scale_windows:
-                t = minmax_scale_tensor(t, low, high)
-            if zscore_scale_windows:
-                t = (t - mean) / std
-            targets.append(t)
-            self.tensor_names.append("future_continuous_targets")
+
+        ### DEPRECATED
+        ### if future_window_length > 0:
+        ###     future_window_indices = torch.tensor(
+        ###         [
+        ###             range(i + window_length, i + window_length + future_window_length)
+        ###             for i in range(
+        ###                 len(dataframe) - window_length - future_window_length
+        ###             )
+        ###         ][::window_skip],
+        ###         dtype=torch.long,
+        ###     )
+        ###     self.future_window_indices = future_window_indices
+        ###     t = from_pandas(dataframe[continuous_targets]).float()[
+        ###         future_window_indices
+        ###     ]
+        ###     if minmax_scale_windows:
+        ###         t = minmax_scale_tensor(t, low, high)
+        ###     if zscore_scale_windows:
+        ###         t = (t - mean) / std
+        ###     targets.append(t)
+        ###     self.tensor_names.append("future_continuous_targets")
 
         assert input_tensors.isfinite().all()
         assert all(data.isfinite().all() for data in targets)

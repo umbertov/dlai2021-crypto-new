@@ -1,4 +1,5 @@
 from typing import Union, Sequence, Any, Tuple
+import pandas as pd
 from torch.optim import Optimizer
 import torch
 from torch import nn
@@ -424,6 +425,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
     ):
         if classification_logits is None or categorical_targets is None:
             return dict(classification_logits=classification_logits)
+        original_classification_logits = classification_logits
         if classification_logits.size(1) == 1:  # seq. len of 1
             categorical_targets = categorical_targets[:, [-1], :]
         classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
@@ -439,7 +441,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                 categorical_targets.view(-1),
                 num_classes=self.hparams.model.num_classes,
             ),
-            "classification_logits": classification_logits,
+            "classification_logits": original_classification_logits,
         }
 
     def _classifier_epoch_end(self, step_outputs, mode: str):
@@ -450,6 +452,38 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             self.logger.experiment.log(
                 {f"{mode}/confusion_matrix": confusion_matrix_plot}
             )
+            if isinstance(self.logger, pl.loggers.WandbLogger):
+                chunks_f1 = self._compute_f1_by_position(step_outputs, 4)
+                self.logger.log_table(
+                    f"{mode}/f1_by_pos",
+                    dataframe=pd.DataFrame(
+                        chunks_f1, index=[self.trainer.current_epoch]
+                    ),
+                )
+
+    def _compute_f1_by_position(self, step_outputs, chunk_size=4):
+        # [len(dataset), seqlen, classes]
+        all_clf_logits = torch.cat(
+            [s["classification_logits"] for s in step_outputs], dim=0
+        )
+        all_clf_targets = torch.cat(
+            [s["categorical_targets"] for s in step_outputs], dim=0
+        )
+        _, seqlen, _ = all_clf_logits.shape
+        chunk_size = seqlen // 4
+        out = dict()
+        for i in range(0, 4):
+            start = i * chunk_size
+            end = start + chunk_size
+            logits = all_clf_logits[:, start:end, :]
+            targets = all_clf_targets[:, start:end, :]
+            out[f"chunk_{i}/f1"] = M.f1(
+                rearrange(logits, "batch seq class -> (batch seq) class"),
+                targets.reshape(-1),
+                average="macro",
+                num_classes=self.hparams.model.num_classes,
+            ).item()
+        return out
 
     def _confusion_matrix_plot(self, step_outputs, num_classes):
         assert step_outputs
@@ -458,7 +492,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             compute_confusion_matrix(
                 torch.cat(
                     [
-                        step["classification_logits"]
+                        rearrange(step["classification_logits"], "b s c -> (b s) c")
                         for step in step_outputs
                         if step is not None
                     ],
