@@ -12,7 +12,7 @@ LIMITS = {
     "binance": 1000,
 }
 
-START_DATE, END_DATE = datetime(2019, 7, 22), datetime(2021, 11, 23)
+START_DATE, END_DATE = datetime(2017, 1, 1), datetime(2019, 7, 22)
 TIMEFRAME = "5m"
 
 
@@ -145,7 +145,7 @@ if __name__ == "__main__":
 
     SYMBOL = args.symbol
     DESTDIR = Path(args.destdir)
-    assert DESTDIR.exists() and DESTDIR.is_dir()
+    assert DESTDIR.is_dir()
 
     exchange = getattr(ccxt, args.exchange)({"enableRateLimit": True})
     symbol_data = download_symbol(
