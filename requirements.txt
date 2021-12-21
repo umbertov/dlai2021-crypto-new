@@ -1,4 +1,6 @@
-torch
+hydra
+omegaconf
+pytorch
 pandas
 numpy
 yfinance
@@ -9,3 +11,5 @@ hydra-core
 wandb
 pytorch-lightning
 torchmetrics
+black
+backtesting
