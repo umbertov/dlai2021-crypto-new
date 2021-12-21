@@ -10,6 +10,7 @@ from functools import reduce
 from operator import mul
 from typing import Callable, Optional
 from einops.layers.torch import Rearrange
+from typing import List, Dict, Tuple
 
 from src.tcn import TemporalConvNet
 
@@ -173,17 +174,9 @@ def NonLinear(
     dropout: float = 0.0,
     channels_last=True,
 ) -> nn.Module:
-    switch_channels = (
-        Rearrange("batch seqlen channels -> batch channels seqlen")
-        if channels_last
-        else nn.Identity()
-    )
     return nn.Sequential(
         nn.Linear(in_size, hidden_size, bias=False),
         nn.Dropout(dropout),
-        switch_channels,
-        nn.BatchNorm1d(hidden_size),
-        switch_channels,
         activation,
     )
 
@@ -259,7 +252,7 @@ class FeedForwardVAE(VariationalAutoEncoder):
         )
 
 
-class TcnClassifier(nn.Module):
+class TcnSequenceClassifier(nn.Module):
     def __init__(
         self,
         num_inputs,
@@ -273,6 +266,7 @@ class TcnClassifier(nn.Module):
         residual=False,
         clf_hidden_sizes=[20],
         activation=nn.LeakyReLU(),
+        dilated_conv=True,
     ):
         super().__init__()
         TcnClass = TCNWrapper if channels_last else TemporalConvNet
@@ -289,15 +283,61 @@ class TcnClassifier(nn.Module):
             dropout=dropout,
             downsample=compression,
             residual=residual,
+            dilated=dilated_conv,
         )
 
-        # clf_layer_sizes = [num_channels[-1]] + clf_layer_sizes
-        # clf_layers = [
-        #     NonLinear(d1, d2, activation=self.activation, dropout=dropout)
-        #     for (d1, d2) in zip(clf_layer_sizes, clf_layer_sizes[1:])
-        # ]
-        # clf_layers = clf_layers + [nn.Linear(clf_layer_sizes[-1], self.num_classes)]
-        # self.classifier = nn.Sequential(*clf_layers)
+        flattened_size = int(
+            num_channels[-1] * (sequence_length / (compression ** (len(num_channels))))
+        )
+        self.classifier = SimpleFeedForward(
+            in_size=flattened_size,
+            hidden_sizes=clf_hidden_sizes,
+            out_size=self.num_classes,
+            dropout=dropout,
+            activation=activation,
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        encoded = rearrange(encoded, "batch x y -> batch (x y)")
+        clf_out = self.classifier(encoded)
+        return {"classification_logits": clf_out}
+
+
+class TcnClassifier(nn.Module):
+    def __init__(
+        self,
+        num_inputs,
+        num_classes,
+        sequence_length,
+        num_channels,
+        kernel_size,
+        dropout=0.0,
+        compression=1,
+        channels_last=False,
+        residual=False,
+        clf_hidden_sizes=[20],
+        activation=nn.LeakyReLU(),
+        dilated_conv=True,
+    ):
+        super().__init__()
+        TcnClass = TCNWrapper if channels_last else TemporalConvNet
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
+        self.num_classes = num_classes
+        self.activation = activation
+        self.channels_last = channels_last
+
+        self.encoder = TcnClass(
+            num_inputs=num_inputs,
+            num_channels=num_channels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+            downsample=compression,
+            residual=residual,
+            dilated=dilated_conv,
+            activation=activation,
+        )
         self.classifier = SimpleFeedForward(
             in_size=num_channels[-1],
             hidden_sizes=clf_hidden_sizes,
@@ -578,14 +618,14 @@ class TransformerForecaster(nn.Module):
 
 
 class DictEmbedder(nn.Module):
-    def __init__(self, key2hiddensize: dict[str, tuple[int, int]]):
+    def __init__(self, key2hiddensize: Dict[str, Tuple[int, int]]):
         self.k2h = key2hiddensize
         self.modules_dict = dict()
         for key, (in_size, hidden_size) in key2hiddensize.items():
             self.modules_dict[key] = NonLinear(in_size=in_size, hidden_size=hidden_size)
         self.modules = nn.ModuleList(list(self.modules_dict.items()))
 
-    def forward(self, **keys2tensors) -> dict[str, torch.Tensor]:
+    def forward(self, **keys2tensors) -> Dict[str, torch.Tensor]:
         if not all(k in self.modules_dict.keys() for k in keys2tensors):
             raise KeyError
         res = {
@@ -599,7 +639,7 @@ class SimpleFeedForward(nn.Module):
     def __init__(
         self,
         in_size: int,
-        hidden_sizes: list[int],
+        hidden_sizes: List[int],
         out_size=None,
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
@@ -723,7 +763,7 @@ class FeedForwardAutoEncoder(AutoEncoder):
     def __init__(
         self,
         in_size: int,
-        hidden_sizes: list[int],
+        hidden_sizes: List[int],
         activation: nn.Module = nn.Sigmoid(),
         dropout: float = 0.0,
         window_length: int = 1,

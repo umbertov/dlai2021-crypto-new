@@ -207,7 +207,7 @@ def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
 
 
 def read_csv_datasets_from_glob(
-    globstr: Union[str, list[str]], *args, **kwargs
+    globstr: Union[str, List[str]], *args, **kwargs
 ) -> Dataset:
     """Same args as `read_csv_datasets`, except for taking a `globstr` argument
     instead of `paths`.

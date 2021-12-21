@@ -385,7 +385,7 @@ class TimeSeriesVAE(TimeSeriesAutoEncoder):
             * torch.sum(1 + latent_logvar - latent_mean.pow(2) - latent_logvar.exp())
         ) * self.hparams.variational_beta
 
-        out: dict[str, torch.Tensor] = {
+        out: Dict[str, torch.Tensor] = {
             "metrics/rec_loss": recon_loss,
             "metrics/kl_divergence_loss": kl_divergence,
             "reconstruction": reconstruction,
@@ -454,12 +454,45 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             )
             if isinstance(self.logger, pl.loggers.WandbLogger):
                 chunks_f1 = self._compute_f1_by_position(step_outputs, 4)
+                chunks_f1["epoch"] = self.trainer.current_epoch
                 self.logger.log_table(
                     f"{mode}/f1_by_pos",
                     dataframe=pd.DataFrame(
                         chunks_f1, index=[self.trainer.current_epoch]
                     ),
                 )
+
+    def _confusion_matrix_plot(self, step_outputs, num_classes):
+        assert step_outputs
+        # Log confusion matrix for the training data
+        confusion_matrix = (
+            compute_confusion_matrix(
+                torch.cat(
+                    [
+                        rearrange(step["classification_logits"], "b s c -> (b s) c")
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
+                ),
+                torch.cat(
+                    [
+                        step["categorical_targets"]
+                        for step in step_outputs
+                        if step is not None
+                    ],
+                    dim=0,
+                ),
+                num_classes=num_classes,
+            )
+            .cpu()
+            .numpy()
+        )
+        plot = confusion_matrix_fig(
+            confusion_matrix,
+            labels=list(range(num_classes)),
+        )
+        return plot
 
     def _compute_f1_by_position(self, step_outputs, chunk_size=4):
         # [len(dataset), seqlen, classes]
@@ -468,15 +501,15 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         )
         all_clf_targets = torch.cat(
             [s["categorical_targets"] for s in step_outputs], dim=0
-        )
+        ).squeeze()
         _, seqlen, _ = all_clf_logits.shape
         chunk_size = seqlen // 4
         out = dict()
         for i in range(0, 4):
             start = i * chunk_size
             end = start + chunk_size
-            logits = all_clf_logits[:, start:end, :]
-            targets = all_clf_targets[:, start:end, :]
+            logits = all_clf_logits[:, start:end]
+            targets = all_clf_targets[:, start:end]
             out[f"chunk_{i}/f1"] = M.f1(
                 rearrange(logits, "batch seq class -> (batch seq) class"),
                 targets.reshape(-1),
@@ -484,6 +517,52 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                 num_classes=self.hparams.model.num_classes,
             ).item()
         return out
+
+
+class TimeSeriesSequenceClassifier(BaseTimeSeriesModule):
+    def _classification_forward(
+        self, classification_logits=None, categorical_targets=None, **_
+    ):
+        # classification_logits : [ Batch, N_Classes ]
+        # categorical_targets : [ Batch, SeqLen]
+        if classification_logits is None or categorical_targets is None:
+            return dict(classification_logits=classification_logits)
+        original_classification_logits = classification_logits
+
+        # we need to get the last element of categorical_targets as the label for entire sequence
+        categorical_targets = categorical_targets[..., -1]
+        classification_loss = self.classification_loss_fn(
+            classification_logits,
+            categorical_targets.view(-1),
+        )
+        return {
+            "metrics/clf_loss": classification_loss,
+            "categorical_targets": categorical_targets,
+            **compute_classification_metrics(
+                classification_logits,
+                categorical_targets.view(-1),
+                num_classes=self.hparams.model.num_classes,
+            ),
+            "classification_logits": original_classification_logits,
+        }
+
+    def _classifier_epoch_end(self, step_outputs, mode: str):
+        if self.classification_loss_fn is not None:
+            confusion_matrix_plot = self._confusion_matrix_plot(
+                step_outputs, self.hparams.model.num_classes
+            )
+            self.logger.experiment.log(
+                {f"{mode}/confusion_matrix": confusion_matrix_plot}
+            )
+            if isinstance(self.logger, pl.loggers.WandbLogger):
+                chunks_f1 = self._compute_f1_by_position(step_outputs, 4)
+                chunks_f1["epoch"] = self.trainer.current_epoch
+                self.logger.log_table(
+                    f"{mode}/f1_by_pos",
+                    dataframe=pd.DataFrame(
+                        chunks_f1, index=[self.trainer.current_epoch]
+                    ),
+                )
 
     def _confusion_matrix_plot(self, step_outputs, num_classes):
         assert step_outputs
@@ -529,14 +608,16 @@ def main(cfg: omegaconf.DictConfig):
     )
     in_size = len(cfg.dataset_conf.input_columns)
     example_in_tensor = torch.randn(2, cfg.dataset_conf.window_length, in_size)
-    example_categorical_tensor = torch.randint_like(
-        example_in_tensor[:, :, :], 0, cfg.dataset_conf.num_classes
+    if cfg.dataset_conf.channels_last == False:
+        example_in_tensor = example_in_tensor.transpose(-1, -2).contiguous()
+    example_categorical_tensor = torch.randint(
+        0, cfg.dataset_conf.n_classes, (2, cfg.dataset_conf.window_length)
     ).long()
     example_continuous_tensor = torch.randn_like(example_in_tensor)
 
     example_output = model(
         example_in_tensor,
-        continuous_targets=example_continuous_tensor,
+        continuous_targets=None,
         categorical_targets=example_categorical_tensor,
     )
 

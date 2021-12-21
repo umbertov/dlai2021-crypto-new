@@ -24,11 +24,12 @@ class TemporalBlock(nn.Module):
         padding,
         dropout=0.2,
         residual=False,
+        activation=nn.ReLU(),
     ):
         super(TemporalBlock, self).__init__()
 
         self.chomp = Chomp1d(padding)
-        self.activation = nn.ReLU()
+        self.activation = activation
         self.dropout = nn.Dropout(dropout)
         self.residual = residual
 
@@ -104,6 +105,8 @@ class TemporalConvNet(nn.Module):
         upsample=1,
         downsample=1,
         residual=False,
+        dilated=True,
+        activation=nn.ReLU(),
     ):
         super().__init__()
 
@@ -122,7 +125,7 @@ class TemporalConvNet(nn.Module):
         layers = []
         num_levels = len(num_channels)
         for i in range(num_levels):
-            dilation_size = 2 ** i
+            dilation_size = 2 ** i if dilated else 1
             inum_channels = num_inputs if i == 0 else num_channels[i - 1]
             out_channels = num_channels[i]
             if upsample > 1:
@@ -137,6 +140,7 @@ class TemporalConvNet(nn.Module):
                     padding=dilation_size * (kernel_size - 1),
                     dropout=dropout,
                     residual=residual,
+                    activation=activation,
                 )
             ]
             if downsample > 1:
@@ -159,11 +163,12 @@ class TransposeTemporalBlock(nn.Module):
         padding,
         dropout=0.2,
         residual=False,
+        activation=nn.ReLU(),
     ):
         super().__init__()
 
         self.chomp = Chomp1d(padding)
-        self.activation = nn.ReLU()
+        self.activation = activation
         self.dropout = nn.Dropout(dropout)
         self.residual = residual
 
@@ -235,23 +240,18 @@ if __name__ == "__main__":
 
     IN_CHANNELS, SEQLEN = 4, 64
 
-    vae = TcnVAE(
-        IN_CHANNELS,
-        latent_size=128,
+    model = TcnSequenceClassifier(
+        num_inputs=IN_CHANNELS,
+        num_classes=2,
         sequence_length=SEQLEN,
         num_channels=[32, 32],
-        compression=2,
+        compression=1,
         kernel_size=3,
-        reconstruction_method="transpose_conv",
         channels_last=False,
         residual=True,
+        dilated_conv=False,
     )
 
     #                 batch, chan,    seq
     ins = torch.randn(2, IN_CHANNELS, SEQLEN)
-    out = vae(ins)
-    reconstruction = out["reconstruction"]
-    if ins.shape != reconstruction.shape:
-
-        print("SHAPE MISMATCH")
-        print(f"{ins.shape=}, {reconstruction.shape=}")
+    out = model(ins)

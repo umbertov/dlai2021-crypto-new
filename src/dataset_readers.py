@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Callable, Optional, Tuple
 from ta.momentum import RSIIndicator
+from typing import List, Tuple
 
 from src.common.utils import get_hydra_cfg
 
@@ -242,7 +243,7 @@ def DebugIfNan():
     return f
 
 
-def AddShiftedColumns(shift_amt: int, columns: list[str]):
+def AddShiftedColumns(shift_amt: int, columns: List[str]):
     def f(df):
         for col in columns:
             df[f"Shift{shift_amt}({col})"] = df[col].shift(shift_amt)
@@ -266,7 +267,7 @@ def Sma_LogPctChange_LogDiff(base_column, sma_period):
     )
 
 
-def Multi_Sma_LogPctChange_LogDiff(colname, sma_lengths: list[int]):
+def Multi_Sma_LogPctChange_LogDiff(colname, sma_lengths: List[int]):
     return Compose(
         *[Sma_LogPctChange_LogDiff(colname, sma_len) for sma_len in sma_lengths]
     )
@@ -392,7 +393,7 @@ from dataclasses import dataclass
 
 @dataclass
 class CandleCenter:
-    OHLC: tuple[str, str, str, str] = ("Open", "High", "Low", "Close")
+    OHLC: Tuple[str, str, str, str] = ("Open", "High", "Low", "Close")
     close: str = "Close"
 
     def encode(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -628,7 +629,7 @@ def minmax_scale_df(df):
 
 
 def zscore_normalize_columns(
-    columns: list[str], period: int, stddev_mult: float = 2, by=None
+    columns: List[str], period: int, stddev_mult: float = 2, by=None
 ):
     normalizers = [
         ZScoreNormalize(colname, period, stddev_mult, by=by) for colname in columns

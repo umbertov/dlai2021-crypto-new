@@ -1,17 +1,17 @@
-_target_: src.lit_models.TimeSeriesClassifier
+_target_: src.lit_models.TimeSeriesSequenceClassifier
 name: tcn_vae
 model:
-  _target_: src.models.TcnClassifier
+  _target_: src.models.TcnSequenceClassifier
   num_inputs: ${length:${dataset_conf.input_columns}}
   num_classes: ${dataset_conf.n_classes}
   sequence_length: ${dataset_conf.window_length}
-  num_channels: [16,32]
+  num_channels: [16,32,64,64]
   dropout: ${model.dropout}
   kernel_size: 3
-  compression: 1
+  compression: 2
   channels_last: ${dataset_conf.channels_last}
   residual: True
-  clf_hidden_sizes: [16]
+  clf_hidden_sizes: [256]
   activation: ${model.activation}
   dilated_conv: True
 classification_loss_fn: 
