@@ -66,6 +66,12 @@ def build_callbacks(cfg: DictConfig) -> List[Callback]:
             )
         )
 
+    callbacks.append(
+        pl.callbacks.RichProgressBar(
+            refresh_rate_per_second=cfg.logging.progress_bar_refresh_rate
+        )
+    )
+
     return callbacks
 
 
@@ -157,7 +163,6 @@ def run(cfg: DictConfig) -> None:
         callbacks=callbacks,
         deterministic=cfg.train.deterministic,
         val_check_interval=cfg.logging.val_check_interval,
-        progress_bar_refresh_rate=cfg.logging.progress_bar_refresh_rate,
         profiler=profiler,
         **cfg.train.pl_trainer,
     )
