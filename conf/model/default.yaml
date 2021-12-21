@@ -1,4 +1,4 @@
-_target_: src.lit_models.TimeSeriesModule
+_target_: src.lightning_modules.TimeSeriesModule
 name: autoencoder_mlp
 model:
   _target_: src.models.ClassifierWithAutoEncoder

@@ -1,4 +1,4 @@
-_target_: src.lit_models.TimeSeriesModule
+_target_: src.lightning_modules.TimeSeriesModule
 name: simple_ffn
 model:
   _target_: src.models.Classifier

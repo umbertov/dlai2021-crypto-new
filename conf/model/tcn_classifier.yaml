@@ -1,4 +1,4 @@
-_target_: src.lit_models.TimeSeriesClassifier
+_target_: src.lightning_modules.TimeSeriesClassifier
 name: tcn_vae
 model:
   _target_: src.models.TcnClassifier

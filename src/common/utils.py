@@ -13,6 +13,10 @@ from hydra.core.global_hydra import GlobalHydra
 from hydra.experimental import compose
 
 
+def notnone(x):
+    return x is not None
+
+
 def try_or_default(f, default=None, exception=Exception):
     def apply(*args, **kwargs):
         try:
