@@ -25,6 +25,16 @@ def get_window_indices(n_elements, window_length, window_skip, future_window_len
     ][::window_skip]
 
 
+def from_pandas(df: pd.DataFrame) -> torch.Tensor:
+    return torch.from_numpy(df.to_numpy())
+
+
+class MultiTickerDataset(ConcatDataset):
+    def reset(self):
+        for ds in self.datasets:
+            ds.reset()
+
+
 class DataframeDataset(TensorDataset):
     dataframe: pd.DataFrame
     input_columns: List[str]
@@ -46,7 +56,6 @@ class DataframeDataset(TensorDataset):
         return_dicts=False,
         minmax_scale_windows=False,
         zscore_scale_windows=False,
-        clamp_values=None,
         channels_last=True,
     ):
         assert not (minmax_scale_windows and zscore_scale_windows)
@@ -56,13 +65,15 @@ class DataframeDataset(TensorDataset):
         self.categorical_targets = categorical_targets
         self.name = name
         self.window_length = window_length
+        self.window_skip = window_skip
         self.future_window_length = future_window_length
         self.tensor_names = ["inputs"]
         self.minmax_scale_windows = minmax_scale_windows
         self.zscore_scale_windows = zscore_scale_windows
         self.return_dicts = return_dicts
+        self.channels_last = channels_last
 
-        window_indices = torch.tensor(
+        self._initial_window_indices = torch.tensor(
             get_window_indices(
                 n_elements=len(dataframe),
                 window_length=self.window_length,
@@ -70,82 +81,11 @@ class DataframeDataset(TensorDataset):
                 future_window_length=self.future_window_length,
             ),
             dtype=torch.long,
-        )
-        self.window_indices = window_indices
-        input_tensors = from_pandas(dataframe[input_columns]).float()[window_indices]
-        if minmax_scale_windows:
-            if minmax_scale_windows == "by_open":
-                low = (
-                    input_tensors[..., 0].min(axis=1, keepdim=True).values.unsqueeze(-1)
-                )
-                high = (
-                    input_tensors[..., 0].max(axis=1, keepdim=True).values.unsqueeze(-1)
-                )
-            else:
-                low = input_tensors.min(axis=1, keepdim=True).values
-                high = input_tensors.max(axis=1, keepdim=True).values
-            input_tensors = minmax_scale_tensor(input_tensors, low, high)
+        )[:-1]
+        self.window_indices = self._initial_window_indices.clone()
 
-        if zscore_scale_windows:
-            mean = input_tensors.mean(axis=1, keepdim=True)
-            std = input_tensors.std(axis=1, keepdim=True) + 1e-20
-            if zscore_scale_windows == "by_open":
-                mean = mean[..., 0].unsqueeze(-1)
-                std = std[..., 0].unsqueeze(-1)
-            input_tensors = (input_tensors - mean) / std
-
-        targets = []
-        if continuous_targets is not None:
-            t = from_pandas(dataframe[continuous_targets]).float()[window_indices]
-            if minmax_scale_windows:
-                t = minmax_scale_tensor(t, low, high)
-            if zscore_scale_windows:
-                t = (t - mean) / std
-            targets.append(t)
-            self.tensor_names.append("continuous_targets")
-
-        if categorical_targets is not None:
-            targets.append(
-                from_pandas(dataframe[categorical_targets].astype(int)).long()[
-                    window_indices
-                ]
-            )
-            self.tensor_names.append("categorical_targets")
-
-        ### DEPRECATED
-        ### if future_window_length > 0:
-        ###     future_window_indices = torch.tensor(
-        ###         [
-        ###             range(i + window_length, i + window_length + future_window_length)
-        ###             for i in range(
-        ###                 len(dataframe) - window_length - future_window_length
-        ###             )
-        ###         ][::window_skip],
-        ###         dtype=torch.long,
-        ###     )
-        ###     self.future_window_indices = future_window_indices
-        ###     t = from_pandas(dataframe[continuous_targets]).float()[
-        ###         future_window_indices
-        ###     ]
-        ###     if minmax_scale_windows:
-        ###         t = minmax_scale_tensor(t, low, high)
-        ###     if zscore_scale_windows:
-        ###         t = (t - mean) / std
-        ###     targets.append(t)
-        ###     self.tensor_names.append("future_continuous_targets")
-
-        assert input_tensors.isfinite().all()
-        assert all(data.isfinite().all() for data in targets)
-
-        if clamp_values is not None:
-            input_tensors, *targets = [
-                torch.clamp(t, clamp_values.min, clamp_values.max)
-                for t in [input_tensors] + targets
-            ]
-        if not channels_last:
-            input_tensors, *targets = [
-                t.transpose(-1, -2) for t in [input_tensors] + targets
-            ]
+        input_tensors = self._get_input_tensors()
+        targets = self._get_targets()
 
         super().__init__(input_tensors, *targets)
 
@@ -155,9 +95,72 @@ class DataframeDataset(TensorDataset):
             return {name: tensor for name, tensor in zip(self.tensor_names, out)}
         return out
 
+    def reset(self):
+        self.window_indices = self._initial_window_indices + torch.randint_like(
+            self._initial_window_indices, low=0, high=self.window_skip - 1
+        )
+        input_tensors = self._get_input_tensors()
+        targets = self._get_targets()
+        super().__init__(input_tensors, *targets)
+        pass
 
-def from_pandas(df: pd.DataFrame) -> torch.Tensor:
-    return torch.from_numpy(df.to_numpy())
+    def _get_input_tensors(self):
+        input_tensors = from_pandas(self.dataframe[self.input_columns]).float()[
+            self.window_indices
+        ]
+        if self.minmax_scale_windows:
+            if self.minmax_scale_windows == "by_open":
+                self._minmax_low = (
+                    input_tensors[..., 0].min(axis=1, keepdim=True).values.unsqueeze(-1)
+                )
+                self._minmax_high = (
+                    input_tensors[..., 0].max(axis=1, keepdim=True).values.unsqueeze(-1)
+                )
+            else:
+                self._minmax_low = input_tensors.min(axis=1, keepdim=True).values
+                self._minmax_high = input_tensors.max(axis=1, keepdim=True).values
+            input_tensors = minmax_scale_tensor(
+                input_tensors, self._minmax_low, self._minmax_high
+            )
+
+        if self.zscore_scale_windows:
+            self._zscore_mean = input_tensors.mean(axis=1, keepdim=True)
+            self._zscore_std = input_tensors.std(axis=1, keepdim=True) + 1e-20
+            if self.zscore_scale_windows == "by_open":
+                self._zscore_mean = self._zscore_mean[..., 0].unsqueeze(-1)
+                self._zscore_std = self._zscore_std[..., 0].unsqueeze(-1)
+            input_tensors = (input_tensors - self._zscore_mean) / self._zscore_std
+        if not self.channels_last:
+            input_tensors = input_tensors.transpose(-1, -2)
+        assert input_tensors.isfinite().all()
+
+        return input_tensors
+
+    def _get_targets(self):
+        targets = []
+        if self.continuous_targets is not None:
+            t = from_pandas(self.dataframe[self.continuous_targets]).float()[
+                self.window_indices
+            ]
+            if self.minmax_scale_windows:
+                t = minmax_scale_tensor(t, self._minmax_low, self._minmax_high)
+            if self.zscore_scale_windows:
+                t = (t - self._zscore_mean) / self._zscore_std
+            targets.append(t)
+            self.tensor_names.append("continuous_targets")
+
+        if self.categorical_targets is not None:
+            targets.append(
+                from_pandas(
+                    self.dataframe[self.categorical_targets].astype(int)
+                ).long()[self.window_indices]
+            )
+            self.tensor_names.append("categorical_targets")
+
+        if not self.channels_last:
+            targets = [t.transpose(-1, -2) for t in targets]
+        assert all(data.isfinite().all() for data in targets)
+        return targets
 
 
 def read_csv_dataset(
@@ -203,7 +206,7 @@ def read_csv_datasets(paths: List[str], *args, **kwargs) -> Dataset:
         read_csv_dataset(path, *args, **kwargs) or None
         for path in tqdm(paths, total=len(paths))
     ]
-    return ConcatDataset([i for i in datasets if i is not None])
+    return MultiTickerDataset([i for i in datasets if i is not None])
 
 
 def read_csv_datasets_from_glob(

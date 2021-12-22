@@ -17,7 +17,6 @@ datamodule:
       zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
       future_window_length: ${dataset_conf.future_window_length}
       return_dicts: ${dataset_conf.return_dicts}
-      clamp_values: ${dataset_conf.clamp_values}
       channels_last: ${dataset_conf.channels_last}
 
     val:
@@ -35,7 +34,6 @@ datamodule:
         zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
         future_window_length: ${dataset_conf.future_window_length}
         return_dicts: ${dataset_conf.return_dicts}
-        clamp_values: ${dataset_conf.clamp_values}
         channels_last: ${dataset_conf.channels_last}
 
 

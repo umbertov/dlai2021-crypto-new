@@ -6,7 +6,20 @@ from backtesting import Backtest
 from src.evaluation.backtesting_strategies import RegressionStrategy
 
 from omegaconf import DictConfig
-from src.pl_data.dataset import MultiTickerDataset
+
+
+def startswith_one_of(string, prefixes):
+    return any(string.startswith(prefix) for prefix in prefixes)
+
+
+class ShuffleDatasetIndices(pl.Callback):
+    def on_train_epoch_start(self, trainer, pl_module):
+        print("shuffling train dataset")
+        trainer.train_dataloader.dataset.datasets.reset()
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        print("shuffling val dataset")
+        trainer.val_dataloaders[0].dataset.reset()
 
 
 BACKTEST_METRICS = [
@@ -28,17 +41,13 @@ BACKTEST_METRICS = [
 ]
 
 
-def startswith_one_of(string, prefixes):
-    return any(string.startswith(prefix) for prefix in prefixes)
-
-
 class BacktestCallback(pl.Callback):
     def __init__(self, cfg: DictConfig, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cfg = cfg
 
     def on_validation_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
-        val_multi_dataset: MultiTickerDataset = trainer.datamodule.val_datasets[0]
+        val_multi_dataset = trainer.datamodule.val_datasets[0]
         datasets = [
             d
             for d in val_multi_dataset.datasets

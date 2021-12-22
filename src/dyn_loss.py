@@ -20,5 +20,8 @@ class DynamicWeightCrossEntropy(nn.Module):
         # normalize so it sums to 1
         new_weight = new_weight / new_weight.sum()
         # update weights with smoothing
-        self.weight = (self.decay) * self.weight + (1 - self.decay) * new_weight
+        new_weight = (self.decay) * self.weight + (1 - self.decay) * new_weight
+        if not logits.requires_grad:
+            return F.cross_entropy(logits, targets, weight=new_weight, reduction="mean")
+        self.weight = new_weight
         return F.cross_entropy(logits, targets, weight=self.weight, reduction="mean")

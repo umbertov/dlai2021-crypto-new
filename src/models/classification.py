@@ -1,3 +1,4 @@
+from einops import rearrange
 from torch import nn
 
 from src.tcn import TemporalConvNet
@@ -113,8 +114,9 @@ class TcnSequenceClassifier(nn.Module):
         )
 
         flattened_size = int(
-            num_channels[-1] * (sequence_length / (compression ** (len(num_channels))))
+            num_channels[-1] * (sequence_length // (compression ** (len(num_channels))))
         )
+        self.flattened_size = flattened_size
         self.classifier = SimpleFeedForward(
             in_size=flattened_size,
             hidden_sizes=clf_hidden_sizes,

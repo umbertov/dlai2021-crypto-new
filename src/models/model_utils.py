@@ -24,6 +24,7 @@ def NonLinear(
 ) -> nn.Module:
     return nn.Sequential(
         nn.Linear(in_size, hidden_size, bias=False),
+        nn.LayerNorm(hidden_size),
         nn.Dropout(dropout),
         activation,
     )

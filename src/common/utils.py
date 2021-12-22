@@ -3,14 +3,14 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import dotenv
-import numpy as np
 import pytorch_lightning as pl
-import torch
 import pytorch_lightning as pl
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from hydra.core.global_hydra import GlobalHydra
-from hydra.experimental import compose
+
+from torch.nn import functional as F
+from torchmetrics import functional as M
 
 
 def notnone(x):
@@ -217,3 +217,30 @@ assert (
 ), "You must configure the PROJECT_ROOT environment variable in a .env file!"
 
 os.chdir(PROJECT_ROOT)
+
+
+def compute_classification_metrics(logits, targets, num_classes):
+    pred_probabilities = F.softmax(logits, dim=-1)
+    return {
+        "metrics/accuracy": M.accuracy(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/precision": M.precision(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/recall": M.recall(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+        "metrics/f1": M.f1(
+            pred_probabilities, targets, num_classes=num_classes, average="macro"
+        ),
+    }
+
+
+def compute_confusion_matrix(logits, targets, num_classes):
+    return M.confusion_matrix(
+        F.softmax(logits.detach(), dim=-1),
+        targets.detach().view(-1),
+        normalize="true",  # normalize over targets ('true') or predictions ('pred')
+        num_classes=num_classes,
+    )

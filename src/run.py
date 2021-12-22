@@ -17,6 +17,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import WandbLogger
 
 from src.common.utils import log_hyperparameters, PROJECT_ROOT
+from src.common.callbacks import ShuffleDatasetIndices
 
 
 def build_callbacks(cfg: DictConfig) -> List[Callback]:
@@ -66,11 +67,15 @@ def build_callbacks(cfg: DictConfig) -> List[Callback]:
             )
         )
 
-    callbacks.append(
-        pl.callbacks.RichProgressBar(
-            refresh_rate_per_second=cfg.logging.progress_bar_refresh_rate
+    if not cfg.train.pl_trainer.fast_dev_run:
+        callbacks.append(
+            pl.callbacks.RichProgressBar(
+                refresh_rate_per_second=cfg.logging.progress_bar_refresh_rate
+            )
         )
-    )
+    callbacks.append(pl.callbacks.RichModelSummary(max_depth=2))
+
+    callbacks.append(ShuffleDatasetIndices())
 
     return callbacks
 

@@ -74,7 +74,6 @@ class MyDataModule(pl.LightningDataModule):
             batch_size=self.batch_size.train,
             num_workers=self.num_workers.train,
             worker_init_fn=worker_init_fn,
-            drop_last=True,
         )
 
     def val_dataloader(self) -> Sequence[DataLoader]:
@@ -85,7 +84,6 @@ class MyDataModule(pl.LightningDataModule):
                 batch_size=self.batch_size.val,
                 num_workers=self.num_workers.val,
                 worker_init_fn=worker_init_fn,
-                drop_last=True,
             )
             for dataset in self.val_datasets
         ]

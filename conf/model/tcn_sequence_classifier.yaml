@@ -1,5 +1,5 @@
 _target_: src.lightning_modules.TimeSeriesSequenceClassifier
-name: tcn_vae
+name: tcn_seqclf
 model:
   _target_: src.models.TcnSequenceClassifier
   num_inputs: ${length:${dataset_conf.input_columns}}
