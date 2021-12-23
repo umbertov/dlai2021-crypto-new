@@ -12,12 +12,14 @@ class DynamicWeightCrossEntropy(nn.Module):
         self.decay = decay
 
     def forward(self, logits, targets):
-        value_counts = torch.zeros_like(self.weight)
+        value_counts = torch.ones_like(self.weight)
         for i in range(self.n_classes):
             value_counts[i] += (targets == i).sum()
         # obtain the inverse value counts
         new_weight = (value_counts.sum()) / value_counts
         # normalize so it sums to 1
+        new_weight = new_weight / new_weight.sum()
+        new_weight = torch.maximum(new_weight, torch.tensor(0.05))
         new_weight = new_weight / new_weight.sum()
         # update weights with smoothing
         new_weight = (self.decay) * self.weight + (1 - self.decay) * new_weight

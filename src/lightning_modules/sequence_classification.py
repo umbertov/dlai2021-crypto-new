@@ -1,7 +1,9 @@
+from random import random
 import torch
+import pytorch_lightning as pl
 
-from einops import rearrange
-from src.common.plot_utils import confusion_matrix_fig
+from src.dyn_loss import DynamicWeightCrossEntropy
+from src.common.plot_utils import confusion_matrix_fig, plot_categorical_tensor
 from src.common.utils import compute_confusion_matrix, compute_classification_metrics
 
 from .base import BaseTimeSeriesModule
@@ -36,11 +38,26 @@ class TimeSeriesSequenceClassifier(BaseTimeSeriesModule):
 
     def _classifier_epoch_end(self, step_outputs, mode: str):
         if self.classification_loss_fn is not None:
+            ### CONFUSION MATRIX
             confusion_matrix_plot = self._confusion_matrix_plot(
                 step_outputs, self.hparams.model.num_classes
             )
             self.logger.experiment.log(
                 {f"{mode}/confusion_matrix": confusion_matrix_plot}
+            )
+
+        if (
+            isinstance(self.classification_loss_fn, DynamicWeightCrossEntropy)
+            and "train" in mode
+            and isinstance(self.logger, pl.loggers.WandbLogger)
+        ):
+            #### LOSS WEIGHTS
+            print("LOGGING LOSS WEIGHTSSSSSSSSSSSSSSSSSSSS")
+            print(self.classification_loss_fn.weight)
+            self.logger.experiment.log(
+                {
+                    f"{mode}/loss_weights": self.classification_loss_fn.weight.cpu().numpy()
+                }
             )
 
     def _confusion_matrix_plot(self, step_outputs, num_classes):

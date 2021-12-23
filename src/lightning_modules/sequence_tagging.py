@@ -6,6 +6,7 @@ from torch.nn import functional as F
 import pytorch_lightning as pl
 import torchmetrics.functional as M
 
+from src.common.plot_utils import confusion_matrix_fig, plot_categorical_tensor
 from src.lightning_modules.base import BaseTimeSeriesModule
 from src.common.plot_utils import confusion_matrix_fig
 
@@ -27,7 +28,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             classification_logits,
             categorical_targets.view(-1),
         )
-        return {
+        out = {
             "metrics/clf_loss": classification_loss,
             "categorical_targets": categorical_targets,
             **compute_classification_metrics(
@@ -37,6 +38,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             ),
             "classification_logits": original_classification_logits,
         }
+        return out
 
     def _classifier_epoch_end(self, step_outputs, mode: str):
         if self.classification_loss_fn is not None:
@@ -55,6 +57,23 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                         chunks_f1, index=[self.trainer.current_epoch]
                     ),
                 )
+            categorical_plot = self._categorical_data_plot(step_outputs)
+            self.logger.experiment.log(
+                {f"{mode}/categorical_data_plot": categorical_plot}
+            )
+        if (
+            isinstance(self.classification_loss_fn, DynamicWeightCrossEntropy)
+            and "train" in mode
+            and isinstance(self.logger, pl.loggers.WandbLogger)
+        ):
+            #### LOSS WEIGHTS
+            print("LOGGING LOSS WEIGHTSSSSSSSSSSSSSSSSSSSS")
+            print(self.classification_loss_fn.weight)
+            self.logger.experiment.log(
+                {
+                    f"{mode}/loss_weights": self.classification_loss_fn.weight.cpu().numpy()
+                }
+            )
 
     def _confusion_matrix_plot(self, step_outputs, num_classes):
         assert step_outputs
@@ -111,3 +130,15 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                 num_classes=self.hparams.model.num_classes,
             ).item()
         return out
+
+    def _categorical_data_plot(self, step_outputs):
+        assert step_outputs
+        random_step = random.choice(step_outputs)
+        inputs, categorical_targets = (
+            random_step["inputs"],
+            random_step["categorical_targets"],
+        )
+        groundtruth_plot = plot_categorical_tensor(
+            inputs.cpu(), categorical_targets.cpu()
+        )
+        return groundtruth_plot

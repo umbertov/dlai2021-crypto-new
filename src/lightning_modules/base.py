@@ -157,6 +157,18 @@ class BaseTimeSeriesModule(pl.LightningModule):
     def _classification_forward(self, **_):
         return None
 
+    def on_after_backward(self, *args, **kwargs):
+        if not all(
+            p.grad.isfinite().all().item()
+            for p in self.parameters()
+            if p.grad is not None
+        ):
+            import ipdb
+
+            ipdb.set_trace()
+
+        return super().on_after_backward(*args, **kwargs)
+
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")
 def main(cfg: omegaconf.DictConfig):

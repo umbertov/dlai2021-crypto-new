@@ -2,6 +2,7 @@ from plotly.subplots import make_subplots
 import wandb
 import pandas as pd
 import numpy as np
+from matplotlib import pyplot as plt
 
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
@@ -125,6 +126,18 @@ def confusion_matrix_fig(confusion_matrix, labels):
 
     # add colorbar
     fig["data"][0]["showscale"] = True
+    return fig
+
+
+def plot_categorical_tensor(
+    data_tensor, label_tensor, cmap={0: "red", 1: "white", 2: "green"}
+):
+    seqlen, channels = data_tensor.shape
+    fig, ax = plt.subplots()
+    ax.plot(data_tensor[..., 0])
+    for val, start in zip(label_tensor.view(-1), range(seqlen - 1)):
+        end = start + 1
+        ax.axvspan(start, end, facecolor=cmap[val], alpha=0.4)
     return fig
 
 
