@@ -145,6 +145,10 @@ def plot_categorical_target(
     df, target_col="TargetCategorical", cmap={0: "red", 1: "white", 2: "green"}
 ):
     ax = df.Open.plot()
-    for val, start, end in zip(df[target_col], df.index, df.index[1:]):
-        ax.axvspan(start, end, facecolor=cmap[val], alpha=0.4)
+    if isinstance(target_col, str):
+        labels = df[target_col]
+    else:
+        labels = target_col
+    for label, start, end in zip(labels, df.index, df.index[1:]):
+        ax.axvspan(start, end, facecolor=cmap[label], alpha=0.4)
     return ax.figure

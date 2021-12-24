@@ -9,7 +9,12 @@ from src.dataset_readers import target_categorical_adaptive_trend
 
 import streamlit as st
 
-from src.common.plot_utils import plot_categorical_target, plot_ohlcv, plot_multi_lines
+from src.common.plot_utils import (
+    plot_categorical_target,
+    plot_categorical_tensor,
+    plot_ohlcv,
+    plot_multi_lines,
+)
 from src.common.utils import get_hydra_cfg, get_model, get_datamodule
 from src.ui.ui_utils import streamlit_select_checkpoint, sidebar
 
@@ -104,12 +109,21 @@ st.plotly_chart(
     )
 )
 
+st.write("# Ground Truth plot:")
 st.pyplot(
     plot_categorical_target(dataframe, target_col="TargetAdaCategorical"),
     clear_figure=True,
 )
 
 st.write(full_dataframe.TargetAdaCategorical.value_counts())
+
+predict_out = model.predict(**batch)
+st.write("# Predictions plot:")
+dataframe["predictions"] = predict_out.numpy().reshape(-1)
+st.pyplot(
+    plot_categorical_target(dataframe, target_col="predictions"),
+    clear_figure=True,
+)
 
 
 model_out = model(**batch)
