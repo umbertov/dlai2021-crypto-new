@@ -514,6 +514,7 @@ def target_categorical_adaptive_trend(
     df, trend_period=10, target_col="TargetAdaCategorical", std_mult=1.0
 ):
     ohlc4 = ohlc4_mean(df)
+    df["OHLC4"] = ohlc4
     mean_before = ohlc4.rolling(trend_period).mean()
     mean_after = ohlc4.shift(-trend_period)
 

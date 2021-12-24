@@ -89,10 +89,12 @@ class DataframeDataset(TensorDataset):
 
         super().__init__(input_tensors, *targets)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, return_df=False):
         out = super().__getitem__(idx)
         if self.return_dicts:
-            return {name: tensor for name, tensor in zip(self.tensor_names, out)}
+            out = {name: tensor for name, tensor in zip(self.tensor_names, out)}
+            if return_df:
+                out["dataframe"] = self.dataframe.iloc[self.window_indices[idx].numpy()]
         return out
 
     def reset(self):

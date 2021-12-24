@@ -17,6 +17,13 @@ from src.common.utils import compute_confusion_matrix, compute_classification_me
 
 
 class TimeSeriesClassifier(BaseTimeSeriesModule):
+    def predict(self, *args, **inputs):
+        model_out = self.forward(*args, **inputs)
+        logits = model_out["classification_logits"]
+        probs = F.softmax(logits, dim=-1)
+        indices = torch.argmax(probs, dim=-1)
+        return indices
+
     def _classification_forward(
         self, classification_logits=None, categorical_targets=None, **_
     ):

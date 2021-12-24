@@ -1,3 +1,4 @@
+from backtesting.backtesting import Backtest
 import hydra
 import torch
 from einops import rearrange
@@ -5,12 +6,12 @@ import os
 from pathlib import Path
 import plotly.graph_objects as go
 from sys import argv
-from src.dataset_readers import target_categorical_adaptive_trend
 
 import streamlit as st
 
-from src.common.plot_utils import plot_categorical_target, plot_ohlcv, plot_multi_lines
+from src.common.plot_utils import plot_ohlcv, plot_multi_lines
 from src.common.utils import get_hydra_cfg, get_model, get_datamodule
+from src.evaluation.backtesting_strategies import SequenceTaggerStrategy
 from src.ui.ui_utils import streamlit_select_checkpoint, sidebar
 
 from copy import deepcopy
@@ -36,13 +37,11 @@ checkpoint_path, run_dir, cfg, model = None, None, None, None
 
 
 @st.cache(allow_output_mutation=True, suppress_st_warning=True)
-def get_cfg_model(use_checkpoint=False, overrides=[]):
+def get_cfg_model(use_checkpoint=False):
     global checkpoint_path, run_dir
     if use_checkpoint:
         checkpoint_path, run_dir = streamlit_select_checkpoint(return_run_dir=True)
-        cfg = get_hydra_cfg(
-            config_path=(f"{run_dir}/files"), config_name="hparams", overrides=overrides
-        )
+        cfg = get_hydra_cfg(config_path=(f"{run_dir}/files"), config_name="hparams")
         st.write("Loaded succesfully from", run_dir)
         model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
         st.write(f"Created model <{cfg.model._target_}>")
@@ -54,7 +53,7 @@ def get_cfg_model(use_checkpoint=False, overrides=[]):
 
 use_checkpoint = sidebar.checkbox("Load Checkpoint?", value=False)
 
-cfg, model = get_cfg_model(use_checkpoint, overrides=["experiment=fast_run"])
+cfg, model = get_cfg_model(use_checkpoint)
 
 input_columns = cfg.dataset_conf.input_columns
 datamodule = get_datamodule(cfg)
@@ -80,37 +79,28 @@ st.write(indices)
 
 full_dataframe = train_dataset.datasets[DATASET_NUMBER].dataframe
 dataframe = full_dataframe.iloc[indices.numpy()]
-batch = {
-    k: v.unsqueeze(0)
-    for k, v in train_dataset.datasets[DATASET_NUMBER][INSTANCE_NUMBER].items()
-}
-st.write(batch.keys())
-input_tensors = batch["inputs"]
-# input_tensors, *targets = [
-#     t[INSTANCE_NUMBER].unsqueeze(0)
-#     for t in train_dataset.datasets[DATASET_NUMBER].tensors
-# ]
+input_tensors, *targets = [
+    t[INSTANCE_NUMBER].unsqueeze(0)
+    for t in train_dataset.datasets[DATASET_NUMBER].tensors
+]
 
 
-st.header(f"Candlestick graph for instance {INSTANCE_NUMBER}")
-st.write(plot_ohlcv(dataframe))
-
-st.plotly_chart(
-    plot_multi_lines(
-        **{
-            colname: input_tensors[0, :, i]
-            for i, colname in enumerate(cfg.dataset_conf.input_columns)
-        }
-    )
+backtest = Backtest(
+    full_dataframe.iloc[10_000:10_500],
+    SequenceTaggerStrategy,
+    cash=100_000,
+    commission=0.002,
+    exclusive_orders=True,
 )
-
-st.pyplot(
-    plot_categorical_target(dataframe, target_col="TargetAdaCategorical"),
-    clear_figure=True,
+and_predictions = sidebar.slider(
+    "n and predictions", min_value=0, max_value=20, value=3
 )
-
-st.write(full_dataframe.TargetAdaCategorical.value_counts())
-
-
-model_out = model(**batch)
-st.write(model_out.keys())
+stats = backtest.run(
+    model=model.cuda(),
+    cfg=cfg,
+    go_short=False,
+    go_long=True,
+    and_predictions=and_predictions,
+)
+st.write(stats)
+backtest.plot()

@@ -1,4 +1,6 @@
 from backtesting import Strategy
+from backtesting.backtesting import Backtest
+from einops import rearrange
 from backtesting.lib import SignalStrategy, TrailingStrategy
 
 from random import random, randint
@@ -42,14 +44,12 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
         raise NotImplementedError
 
     def next(self):
-        if self.position:
-            self.position.close()
-
+        price = self.data.Close[-1]
         prediction = self.model_output[-1]
-        if prediction == 1 and self.go_long:
-            self.buy(size=0.999)
-        elif prediction == -1 and self.go_short:
-            self.sell(size=0.999)
+        if prediction == 1 and self.go_long and not self.position.is_long:
+            self.buy(size=0.999, tp=price * 1.02)
+        elif prediction == -1 and self.go_short and not self.position.is_short:
+            self.sell(size=0.999, tp=price * 0.98)
 
 
 class Monke(Strategy):
@@ -101,11 +101,15 @@ class FaultyOracle(PerfectOracle):
 class SequenceTaggerStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
     class2idx = {0: "sell", 1: "hold", 2: "buy"}
+    and_predictions = 2
 
     @torch.no_grad()
     def get_model_output(self):
+        channels_last = self.cfg.dataset_conf.channels_last
 
-        model: "torch.nn.Module" = self.model or get_model(self.cfg)
+        model: "src.lightning_modules.TimeSeriesClassifier" = self.model or get_model(
+            self.cfg
+        )
 
         assert model is not None
         model = model.eval()
@@ -113,32 +117,38 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         device = model.device
         model_output = pd.Series([0] * len(self.data))
 
-        input_columns = self.cfg.data.dataset_conf.input_columns
-        input_length = self.cfg.data.dataset_conf.input_length
+        input_columns = self.cfg.dataset_conf.input_columns
+        input_length = self.cfg.dataset_conf.window_length
         print(f"{input_columns=}, {input_length=}")
 
         feature_dataframe = self.data.df[input_columns]
 
         print("beginning to compute model predictions")
-        for candle_idx in range(
-            input_length + 1,
-            len(feature_dataframe) - input_length,
-        ):
-            input_dataframe = feature_dataframe.iloc[
-                (candle_idx - input_length) : candle_idx
-            ]
-            input_tensor = (
-                torch.tensor(input_dataframe.values, device=device)
-                .view(1, input_length, -1)  #### CHANNELS LAST
-                .float()
-            )
-            # class_indices :: [Batch, SeqLen]
-            class_indices = model.predict(input_tensor)
-            class_idx = class_indices[0, -1]
-            if class_idx == self.class2idx["buy"]:
-                model_output[candle_idx] = 1
-            elif class_idx == self.class2idx["sell"]:
-                model_output[candle_idx] = -1
+        with tqdm(total=len(feature_dataframe) - input_length) as pbar:
+            for candle_idx in range(
+                input_length + 1,
+                len(feature_dataframe) - input_length,
+            ):
+                input_dataframe = feature_dataframe.iloc[
+                    (candle_idx - input_length) : candle_idx
+                ]
+                input_tensor = (
+                    torch.tensor(input_dataframe.values, device=device)
+                    .view(1, input_length, -1)  #### CHANNELS LAST
+                    .float()
+                )
+                if not channels_last:
+                    input_tensor = rearrange(input_tensor, "b s c -> b c s")
+                # class_indices :: [Batch, SeqLen]
+                class_indices = model.predict(input_tensor)
+                class_idx = class_indices[0, -1].item()
+                for i in range(self.and_predictions):
+                    class_idx = class_idx * class_indices[0, -1 - i].item()
+                if self.class2idx[class_idx] == "buy":
+                    model_output[candle_idx] = 1
+                elif self.class2idx[class_idx] == "sell":
+                    model_output[candle_idx] = -1
+                pbar.update()
 
         return model_output
 
@@ -160,7 +170,7 @@ class RegressionStrategy(ModelStrategyBase):
         model_output = pd.Series([0] * len(self.data))
 
         input_columns = self.cfg.data.dataset_conf.input_columns
-        input_length = self.cfg.data.dataset_conf.input_length
+        input_length = self.cfg.data.dataset_conf.window_length
         print(f"{input_columns=}, {input_length=}")
 
         feature_dataframe = self.data.df[input_columns]
@@ -186,3 +196,28 @@ class RegressionStrategy(ModelStrategyBase):
                 model_output[candle_idx] = -1
 
         return model_output
+
+
+if __name__ == "__main__":
+    from src.common.utils import get_hydra_cfg, get_model, get_datamodule
+    from sys import argv
+
+    cfg = get_hydra_cfg(overrides=argv[1:])
+    model = get_model(cfg).cuda()
+    datamodule = get_datamodule(cfg)
+    dss = datamodule.train_dataset.datasets
+    dfs = [ds.dataframe for ds in dss]
+    df = dataframe = dfs[0]
+    ds = dataset = dss[0]
+
+    backtest = Backtest(
+        dataframe.iloc[10_000:10_500],
+        SequenceTaggerStrategy,
+        cash=100_000,
+        commission=0.002,
+        exclusive_orders=True,
+    )
+    stats = backtest.run(
+        model=model, cfg=cfg, go_short=False, go_long=True, and_predictions=2
+    )
+    print(stats)

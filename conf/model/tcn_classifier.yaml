@@ -19,6 +19,7 @@ classification_loss_fn:
   n_classes: ${dataset_conf.n_classes}
   decay: 0.8
   minimum_weight: 0.1
+  label_smoothing: 0.0
 regression_loss_fn: null
 reconstruction_loss_fn: null
 variational_beta: 1
