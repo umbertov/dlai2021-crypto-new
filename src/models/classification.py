@@ -29,6 +29,51 @@ class Classifier(nn.Module):
         return {"classification_logits": self.classifier(features)}
 
 
+class FullyConvolutionalSequenceTagger(nn.Module):
+    def __init__(
+        self,
+        num_inputs,
+        num_classes,
+        sequence_length,
+        num_channels,
+        kernel_size,
+        dropout=0.0,
+        compression=1,
+        channels_last=False,
+        residual=False,
+        activation=nn.LeakyReLU(),
+        dilated_conv=True,
+    ):
+        super().__init__()
+        TcnClass = TCNWrapper if channels_last else TemporalConvNet
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
+        self.num_classes = num_classes
+        self.activation = activation
+        self.channels_last = channels_last
+
+        self.encoder = TcnClass(
+            num_inputs=num_inputs,
+            num_channels=num_channels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+            downsample=compression,
+            residual=residual,
+            dilated=dilated_conv,
+            activation=activation,
+        )
+        self.classifier = nn.Conv1d(num_channels[-1], num_classes, kernel_size=1)
+
+    def forward(self, x):
+        # x: [batch, seq, chan] if channels_last else [batch chan seq]
+        encoded = self.encoder(x)
+        clf_out = self.classifier(encoded)
+        if not self.channels_last:
+            # [batch class seq ] -> [batch seq class]
+            clf_out = clf_out.transpose(-1, -2)
+        return {"classification_logits": clf_out}
+
+
 class TcnClassifier(nn.Module):
     def __init__(
         self,

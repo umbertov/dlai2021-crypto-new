@@ -3,7 +3,7 @@ import pandas as pd
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from backtesting import Backtest
-from src.evaluation.backtesting_strategies import RegressionStrategy
+from src.evaluation.backtesting_strategies import SequenceTaggerStrategy
 
 from omegaconf import DictConfig
 
@@ -59,7 +59,7 @@ class BacktestCallback(pl.Callback):
             dataframe = dataset.dataframe
             bt = Backtest(
                 dataframe,
-                RegressionStrategy,
+                SequenceTaggerStrategy,
                 cash=1000,
                 commission=0.002,
                 exclusive_orders=True,
@@ -67,10 +67,8 @@ class BacktestCallback(pl.Callback):
             stats = bt.run(
                 model=pl_module,
                 cfg=self.cfg,
-                threshold=self.cfg.backtest.threshold,
-                go_short=self.cfg.backtest.go_short,
-                go_long=self.cfg.backtest.go_long,
-                mult_factor=self.cfg.backtest.scale_model_output,
+                go_short=True,
+                go_long=True,
             )
             stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]
             stats_dict = {k: v[0] for k, v in stats_df.T.to_dict().items()}

@@ -1,7 +1,7 @@
 _target_: src.lightning_modules.TimeSeriesClassifier
-name: tcn_seqtagger
+name: tcn_fullyconv_seqtagger
 model:
-  _target_: src.models.TcnClassifier
+  _target_: src.models.FullyConvolutionalSequenceTagger
   num_inputs: ${length:${dataset_conf.input_columns}}
   num_classes: ${dataset_conf.n_classes}
   sequence_length: ${dataset_conf.window_length}
@@ -11,7 +11,6 @@ model:
   compression: 1
   channels_last: ${dataset_conf.channels_last}
   residual: True
-  clf_hidden_sizes: [16]
   activation: ${model.activation}
   dilated_conv: True
 classification_loss_fn: 

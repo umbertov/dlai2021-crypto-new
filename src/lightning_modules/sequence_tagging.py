@@ -2,11 +2,13 @@ import pandas as pd
 from einops import rearrange
 import torch
 from torch.nn import functional as F
+import random
 
 import pytorch_lightning as pl
 import torchmetrics.functional as M
 
 from src.common.plot_utils import confusion_matrix_fig, plot_categorical_tensor
+from src.dyn_loss import DynamicWeightCrossEntropy
 from src.lightning_modules.base import BaseTimeSeriesModule
 from src.common.plot_utils import confusion_matrix_fig
 
@@ -57,10 +59,10 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                         chunks_f1, index=[self.trainer.current_epoch]
                     ),
                 )
-            categorical_plot = self._categorical_data_plot(step_outputs)
-            self.logger.experiment.log(
-                {f"{mode}/categorical_data_plot": categorical_plot}
-            )
+            # categorical_plot = self._categorical_data_plot(step_outputs)
+            # self.logger.experiment.log(
+            #     {f"{mode}/categorical_data_plot": categorical_plot}
+            # )
         if (
             isinstance(self.classification_loss_fn, DynamicWeightCrossEntropy)
             and "train" in mode
@@ -135,10 +137,10 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         assert step_outputs
         random_step = random.choice(step_outputs)
         inputs, categorical_targets = (
-            random_step["inputs"],
-            random_step["categorical_targets"],
+            random_step["inputs"][0],
+            random_step["categorical_targets"][0],
         )
         groundtruth_plot = plot_categorical_tensor(
-            inputs.cpu(), categorical_targets.cpu()
+            inputs.cpu().transpose(-1, -2), categorical_targets.cpu().transpose(-1, -2)
         )
         return groundtruth_plot

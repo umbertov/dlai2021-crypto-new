@@ -137,7 +137,7 @@ def plot_categorical_tensor(
     ax.plot(data_tensor[..., 0])
     for val, start in zip(label_tensor.view(-1), range(seqlen - 1)):
         end = start + 1
-        ax.axvspan(start, end, facecolor=cmap[val], alpha=0.4)
+        ax.axvspan(start, end, facecolor=cmap[val.item()], alpha=0.4)
     return fig
 
 

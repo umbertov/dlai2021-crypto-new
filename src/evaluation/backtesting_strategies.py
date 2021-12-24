@@ -29,9 +29,7 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
     go_long: bool = True
     go_short: bool = True
     cfg: "omegaconf.DictConfig"
-    threshold: float = 1
     model: torch.nn.Module = None
-    mult_factor = 1
 
     def init(self):
         super().init()
@@ -147,6 +145,8 @@ class SequenceTaggerStrategy(ModelStrategyBase):
 
 class RegressionStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
+    threshold: float = 1
+    mult_factor = 1
 
     @torch.no_grad()
     def get_model_output(self):

@@ -4,12 +4,13 @@ import torch.nn as nn
 
 
 class DynamicWeightCrossEntropy(nn.Module):
-    def __init__(self, n_classes, decay=0.8):
+    def __init__(self, n_classes, decay=0.8, minimum_weight=0.1):
         super().__init__()
         self.n_classes = n_classes
         weight = torch.ones(n_classes, dtype=torch.float, requires_grad=False)
         self.register_buffer("weight", weight)
         self.decay = decay
+        self.minimum_weight = minimum_weight
 
     def forward(self, logits, targets):
         value_counts = torch.ones_like(self.weight)
@@ -19,7 +20,7 @@ class DynamicWeightCrossEntropy(nn.Module):
         new_weight = (value_counts.sum()) / value_counts
         # normalize so it sums to 1
         new_weight = new_weight / new_weight.sum()
-        new_weight = torch.maximum(new_weight, torch.tensor(0.05))
+        new_weight = torch.maximum(new_weight, torch.tensor(self.minimum_weight))
         new_weight = new_weight / new_weight.sum()
         # update weights with smoothing
         new_weight = (self.decay) * self.weight + (1 - self.decay) * new_weight

@@ -31,4 +31,4 @@ zscore_scale_windows: False
 future_window_length: 0
 return_dicts: True
 clamp_values: null
-channels_last: True
+channels_last: False
