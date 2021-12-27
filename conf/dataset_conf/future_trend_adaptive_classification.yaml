@@ -4,7 +4,7 @@ defaults:
 dataset_reader:
   _target_: src.dataset_readers.feature_set_2_trendprediction_reader
   resample: 5min
-  trend_period: 20
+  trend_period: 10
   std_mult: 1.0
 
 input_columns:

@@ -8,21 +8,25 @@ model:
     lstm:
       _target_: src.models.LstmModel
       in_size: ${length:${dataset_conf.input_columns}}
-      hidden_size: 64
+      hidden_size: 128
       window_length: ${dataset_conf.window_length}
       num_layers: 1
     mlp:
       _target_: src.models.SimpleFeedForward
       in_size: ${model.model.feature_extractor.lstm.hidden_size}
       window_length: ${dataset_conf.window_length}
-      hidden_sizes: [100,50]
+      hidden_sizes: [50]
       activation:
         _target_: ${model.activation}
       dropout:
         ${model.dropout}
       flatten_input: ${model.flatten_input}
 classification_loss_fn:
-  _target_: torch.nn.CrossEntropyLoss
+  _target_: src.dyn_loss.DynamicWeightCrossEntropy
+  n_classes: ${dataset_conf.n_classes}
+  decay: 0.8
+  minimum_weight: 0.1
+  label_smoothing: 0.0
 regression_loss_fn:
 reconstruction_loss_fn:
 reconstruction_loss_weight:
