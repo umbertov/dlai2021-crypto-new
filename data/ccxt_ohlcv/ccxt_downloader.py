@@ -12,7 +12,7 @@ LIMITS = {
     "binance": 1000,
 }
 
-START_DATE, END_DATE = datetime(2017, 1, 1), datetime(2019, 7, 22)
+START_DATE, END_DATE = datetime(2017, 1, 1), datetime(2021, 12, 1)
 TIMEFRAME = "5m"
 
 
@@ -114,6 +114,9 @@ def download_symbol(
         exchange, symbol, start_date, end_date, timeframe, limit=limit
     )
     df = join_dataframes(ohlcv_dataframes)
+
+    # get actual start/end date from the downloaded data
+    start_date, end_date = df.index[0], df.index[-1]
 
     csv_path = destdir / csv_filename(symbol, start_date, end_date, exchange_name)
 
