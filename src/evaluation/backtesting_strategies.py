@@ -137,6 +137,11 @@ class SequenceTaggerStrategy(ModelStrategyBase):
                     .view(1, input_length, -1)  #### CHANNELS LAST
                     .float()
                 )
+                ### THIS BLOCK UNTESTED
+                if self.cfg.dataset_conf.zscore_scale_windows == "by_open":
+                    open_col = input_tensor[..., 0]
+                    mean, std = open_col.mean(), open_col.std()
+                    input_tensor = (input_tensor - mean) / std
                 if not channels_last:
                     input_tensor = rearrange(input_tensor, "b s c -> b c s")
                 # class_indices :: [Batch, SeqLen]
