@@ -52,14 +52,14 @@ def get_cfg_model(use_checkpoint=False, overrides=[]):
         model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
         st.write(f"Created model <{cfg.model._target_}>")
     else:
-        cfg = get_hydra_cfg(overrides=argv[1:])
+        cfg = get_hydra_cfg(overrides=overrides)
         model = get_model(cfg)
     return cfg, model
 
 
 use_checkpoint = sidebar.checkbox("Load Checkpoint?", value=False)
 
-cfg, model = get_cfg_model(use_checkpoint, overrides=["experiment=fast_run"])
+cfg, model = get_cfg_model(use_checkpoint)
 
 input_columns = cfg.dataset_conf.input_columns
 datamodule = get_datamodule(cfg)
@@ -128,3 +128,30 @@ st.pyplot(
 
 model_out = model(**batch)
 st.write(model_out.keys())
+
+
+def backtest_model_on_dataframe(cfg, dataframe, model):
+    from backtesting import Backtest
+    from src.evaluation.backtesting_strategies import SequenceTaggerStrategy
+    from src.common.callbacks import BACKTEST_METRICS
+    import pandas as pd
+
+    bt = Backtest(
+        dataframe,
+        SequenceTaggerStrategy,
+        cash=1000,
+        commission=0.002,
+        exclusive_orders=True,
+    )
+    stats = bt.run(
+        model=model,
+        cfg=cfg,
+        go_short=True,
+        go_long=True,
+    )
+    stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]
+    # stats_dict = {k: v[0] for k, v in stats_df.T.to_dict().items()}
+    return stats_df
+
+
+backtest_model_on_dataframe(cfg, full_dataframe.iloc[2000:5000], model)
