@@ -11,7 +11,7 @@ def init_gru(cell, gain=1):
     # orthogonal initialization of recurrent weights
     for _, hh, _, _ in cell.all_weights:
         for i in range(0, hh.size(0), cell.hidden_size):
-            I.orthogonal(hh[i : i + cell.hidden_size], gain=gain)
+            I.orthogonal_(hh[i : i + cell.hidden_size], gain=gain)
 
 
 def init_lstm(cell, gain=1):
