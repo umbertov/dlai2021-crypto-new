@@ -1,7 +1,7 @@
 from torch import nn
 import torch.nn.init as I
 
-from .model_utils import *
+from .model_utils import compute_forecast
 from .ffn import SimpleFeedForward
 
 
@@ -43,12 +43,11 @@ class LstmModel(nn.Module):
             bidirectional=False,
         )
         init_lstm(self.lstm)
-        self.out_dim = self.window_length * self.hidden_size
+        self.out_dim = self.hidden_size
 
     def forward(self, x):
         encoded_seq, _ = self.lstm(x)
         return encoded_seq
-        # return rearrange(encoded_seq, "batch seqlen f -> batch (seqlen f)")
 
 
 class AutoregressiveLstmModel(LstmModel):

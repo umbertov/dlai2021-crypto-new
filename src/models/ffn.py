@@ -1,6 +1,8 @@
 from torch import nn
 
-from .model_utils import *
+from .model_utils import NonLinear
+from einops import rearrange
+from typing import List
 
 
 class SimpleFeedForward(nn.Module):
