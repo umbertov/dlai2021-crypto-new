@@ -9,8 +9,8 @@ from src.common.utils import get_hydra_cfg
 DEBUG = True
 
 
-# library of functions that pre-process the raw time series and compute features.
-# this would look nicer if python had (un/)currying
+# library of functions that pre-process the raw OHLCV time series and compute features.
+# this would look nicer if python had syntactically good (un/)currying of functions
 
 # it all boils down to being able to write pre-processing as a chain of basic modules
 
@@ -54,7 +54,7 @@ def read_yfinance_dataframe(path: str) -> pd.DataFrame:
         dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
     except ValueError:
         dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Datetime"]).rename(columns={"Datetime": "Date"})  # type: ignore
-    except EmptyDataError:
+    except pd.errors.EmptyDataError:
         raise EmptyDataFrame
     dataframe.index = pd.to_datetime(dataframe["Date"], utc=True)
     dataframe.drop("Date", inplace=True, axis="columns")
@@ -397,14 +397,14 @@ class CandleCenter:
     close: str = "Close"
 
     def encode(self, df: pd.DataFrame) -> pd.DataFrame:
-        normed = np.log(df[list(self.OHLC)]).sub(np.log(df[self.OHLC[0]]), axis=0)
+        OHLC = list(self.OHLC)
+        normed = np.log(df[OHLC]).sub(np.log(df[OHLC]), axis=0)
         return normed
 
     def decode(self, normed: pd.DataFrame) -> pd.DataFrame:
+        OHLC = list(self.OHLC)
         recons_open = normed[self.close].cumsum()
-        reconstructed = np.exp(
-            normed[list(self.OHLC)].add(recons_open.shift(1), axis=0)
-        )
+        reconstructed = np.exp(normed[OHLC].add(recons_open.shift(1), axis=0))
         return reconstructed
 
 
@@ -425,6 +425,7 @@ def center_candles(df, scaler=CandleCenter()):
 def NormOHLC4(cols):
     def f(df):
         ohlc4 = ohlc4_mean(df)
+        ohlc4[ohlc4 == 0] = 1
         for col in cols:
             df[f"NormOHLC4({col})"] = df[col] / (ohlc4 + 1e-12)
         return df
@@ -570,15 +571,6 @@ def feature_set_2_reader(resample="5min"):
     )
 
 
-resampling_feature_set_2_reader = lambda resample: Compose(
-    try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
-    Resample(resample),
-    lambda df: df.ffill(),
-    DebugIfNan(),
-    feature_set_2,
-    Strip(),
-)
-
 example_reader = lambda: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     feature_set_1,
@@ -645,12 +637,12 @@ minmax_ohlcv = Compose(
     MinMaxScaler("High"),
     MinMaxScaler("Low"),
     MinMaxScaler("Close"),
+    Shift("MinMax(Close)", target_column="FutureClose"),
 )
 
 minmax_reader = lambda: Compose(
     try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
     minmax_ohlcv,
-    Shift("MinMax(Close)", target_column="FutureClose"),
 )
 
 

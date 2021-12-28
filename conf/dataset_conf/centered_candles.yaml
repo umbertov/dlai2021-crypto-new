@@ -1,9 +1,9 @@
 defaults:
-  - data_path: yahoofinance5min.yaml
+  - data_path: fast_run
 
 window_length: 3
 dataset_reader:
-  _target_: src.dataset_readers.resampling_feature_set_2_reader
+  _target_: src.dataset_readers.feature_set_2_reader
   resample: 30min
 
 input_columns:

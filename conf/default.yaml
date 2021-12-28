@@ -10,7 +10,7 @@ defaults:
   - hydra: default
   - logging: default
   - losses: default
-  - model: default
+  - model: tcn_classifier
   - lr_scheduler: default
   - optim: adam
   - train: default
