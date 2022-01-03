@@ -1,0 +1,23 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: lstm.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+model:
+  model:
+    feature_extractor:
+      lstm:
+        hidden_size: 128
+      mlp:
+        hidden_sizes: [128,50]
+  classification_loss:
+    decay: 0.9
+    minimum_weight: 0.1
+
+dataset_conf:
+  channels_last: True
+  return_dicts: True

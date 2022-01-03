@@ -60,14 +60,14 @@ class BacktestCallback(pl.Callback):
             bt = Backtest(
                 dataframe,
                 SequenceTaggerStrategy,
-                cash=1000,
+                cash=100_000,
                 commission=0.002,
                 exclusive_orders=True,
             )
             stats = bt.run(
                 model=pl_module,
                 cfg=self.cfg,
-                go_short=True,
+                go_short=False,
                 go_long=True,
             )
             stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]

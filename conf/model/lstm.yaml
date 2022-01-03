@@ -11,6 +11,8 @@ model:
       hidden_size: 128
       window_length: ${dataset_conf.window_length}
       num_layers: 1
+      dropout:
+        ${model.dropout}
     mlp:
       _target_: src.models.SimpleFeedForward
       in_size: ${model.model.feature_extractor.lstm.hidden_size}

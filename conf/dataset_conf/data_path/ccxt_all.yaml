@@ -1,7 +1,7 @@
 data_path: ${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/*.csv
 dataset_conf:
   train_period:
-    start: 2019-07-22
+    start: 2017-01-01
     end:   2021-10-01
   val_period:
     start: ${dataset_conf.train_period.end}

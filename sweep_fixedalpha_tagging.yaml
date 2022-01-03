@@ -1,0 +1,55 @@
+method: bayes
+metric:
+  name: val/f1
+  goal: maximize
+
+
+program: src/run.py
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}
+
+parameters:
+  experiment:
+    values:
+      - lstm_small
+      - lstm_large
+      - tcn_small_shallow
+      - tcn_small_deep
+      - tcn_wide_shallow
+      - tcn_wide_deep
+
+  dataset_conf:
+    distribution: constant
+    value: future_trend_classification
+
+  dataset_conf.dataset_reader.trend_period:
+    distribution: categorical
+    values: [5,10,20]
+
+  dataset_conf.dataset_reader.alpha:
+    distribution: categorical
+    values: [0.01, 0.008, 0.015, 0.005, 0.02]
+
+  dataset_conf.zscore_scale_windows:
+    distribution: categorical
+    values: ["by_open", True]
+
+  dataset_conf.window_length:
+    distribution: categorical
+    values: [128,64]
+
+  model.dropout:
+    distribution: categorical
+    values: [0.1,0.2,0.5]
+
+  data.datamodule.batch_size.train:
+    distribution: categorical
+    values: [64,128,256]
+
+  optim.optimizer.lr:
+    distribution: categorical
+    values: [0.01, 0.001, 0.0001]

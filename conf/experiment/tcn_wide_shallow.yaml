@@ -1,0 +1,20 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: tcn_classifier.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+
+model:
+  model:
+    num_channels: [32,64]
+    dilated_conv: True
+    kernel_size: 3
+    clf_hidden_sizes: [128,64]
+
+dataset_conf:
+  channels_last: False
+  return_dicts: True

@@ -1,5 +1,5 @@
 defaults:
-  - data_path: yahoofinance5min.yaml
+  - data_path: ccxt_all
 
 window_length: 1
 dataset_reader:

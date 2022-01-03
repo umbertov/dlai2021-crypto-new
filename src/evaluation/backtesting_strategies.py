@@ -1,10 +1,10 @@
 from backtesting import Strategy
 from backtesting.backtesting import Backtest
 from einops import rearrange
-from backtesting.lib import SignalStrategy, TrailingStrategy
+from backtesting.lib import SignalStrategy, TrailingStrategy, barssince
 
 from random import random, randint
-from typing import Callable
+from typing import Callable, Optional
 from tqdm.auto import tqdm
 
 import torch
@@ -30,6 +30,8 @@ from abc import ABCMeta, abstractmethod
 class ModelStrategyBase(Strategy, metaclass=ABCMeta):
     go_long: bool = True
     go_short: bool = True
+    price_delta_pct: Optional[float] = None
+    position_size_pct: float = 0.999
     cfg: "omegaconf.DictConfig"
     model: torch.nn.Module = None
 
@@ -43,13 +45,41 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
     def get_model_output(self):
         raise NotImplementedError
 
+    def _long_sl_tp_prices(self, price):
+        sl, tp = None, None
+        if self.price_delta_pct is not None:
+            tp, sl = price * (1 + np.r_[1, -1] * self.price_delta_pct)
+        return sl, tp
+
+    def _short_sl_tp_prices(self, price):
+        sl, tp = None, None
+        if self.price_delta_pct is not None:
+            sl, tp = price * (1 + np.r_[1, -1] * self.price_delta_pct)
+        return sl, tp
+
     def next(self):
         price = self.data.Close[-1]
         prediction = self.model_output[-1]
-        if prediction == 1 and self.go_long and not self.position.is_long:
-            self.buy(size=0.999, tp=price * 1.02)
-        elif prediction == -1 and self.go_short and not self.position.is_short:
-            self.sell(size=0.999, tp=price * 0.98)
+        position_duration = 0
+        if len(self.trades) > 0:
+            last_trade = self.trades[-1]
+            is_open = last_trade.exit_bar is None
+            if is_open:
+                position_duration = len(self.data) - last_trade.entry_bar
+        if prediction == 1:
+            if self.position.is_short:
+                self.position.close()
+            if self.go_long and self.position.size < 0.9:
+                sl, tp = self._long_sl_tp_prices(price)
+                self.buy(size=self.position_size_pct, tp=tp, sl=sl)
+        elif prediction == -1:
+            if self.position.is_long:
+                self.position.close()
+            if self.go_short and self.position.size > -0.9:
+                sl, tp = self._short_sl_tp_prices(price)
+                self.sell(size=self.position_size_pct, tp=tp, sl=sl)
+        elif position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
+            self.position.close()
 
 
 class Monke(Strategy):
@@ -101,7 +131,7 @@ class FaultyOracle(PerfectOracle):
 class SequenceTaggerStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
     class2idx = {0: "sell", 1: "hold", 2: "buy"}
-    and_predictions = 2
+    and_predictions = 0
 
     @torch.no_grad()
     def get_model_output(self):
@@ -118,7 +148,7 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         model_output = pd.Series([0] * len(self.data))
 
         input_columns = self.cfg.dataset_conf.input_columns
-        input_length = self.cfg.dataset_conf.window_length
+        input_length = self.cfg.dataset_conf.window_length // 2
         print(f"{input_columns=}, {input_length=}")
 
         feature_dataframe = self.data.df[input_columns]
@@ -147,11 +177,68 @@ class SequenceTaggerStrategy(ModelStrategyBase):
                 # class_indices :: [Batch, SeqLen]
                 class_indices = model.predict(input_tensor)
                 class_idx = class_indices[0, -1].item()
+                class_name = self.class2idx[class_idx]
                 for i in range(self.and_predictions):
-                    class_idx = class_idx * class_indices[0, -1 - i].item()
-                if self.class2idx[class_idx] == "buy":
+                    new_class_idx = class_indices[0, -1 - i].item()
+                    new_class_name = self.class2idx[new_class_idx]
+                    if not (
+                        (class_name == new_class_name == "buy")
+                        or (class_name == new_class_name == "sell")
+                    ):
+                        class_name = "neutral"
+                        break
+                if class_name == "buy":
                     model_output[candle_idx] = 1
-                elif self.class2idx[class_idx] == "sell":
+                elif class_name == "sell":
+                    model_output[candle_idx] = -1
+                pbar.update()
+
+        return model_output
+
+
+class OptimalSequenceTaggerStrategy(ModelStrategyBase):
+    cfg: "omegaconf.DictConfig" = None
+    class2idx = {0: "sell", 1: "hold", 2: "buy"}
+    and_predictions = 0
+
+    @torch.no_grad()
+    def get_model_output(self):
+        channels_last = self.cfg.dataset_conf.channels_last
+
+        model: "src.lightning_modules.TimeSeriesClassifier" = self.model or get_model(
+            self.cfg
+        )
+
+        assert model is not None
+        model = model.eval()
+
+        model_output = pd.Series([0] * len(self.data))
+
+        label_column = self.cfg.dataset_conf.categorical_targets
+        labels = self.data.df[label_column]
+
+        input_length = self.cfg.dataset_conf.window_length
+
+        print("beginning to compute model predictions")
+        with tqdm(total=len(self.data.df) - input_length) as pbar:
+            for candle_idx in range(
+                input_length + 1,
+                len(self.data.df) - input_length,
+            ):
+                class_idx = int(labels.iloc[candle_idx])
+                class_name = self.class2idx[class_idx]
+                for i in range(self.and_predictions):
+                    new_class_idx = int(labels.iloc[-1 - i])
+                    new_class_name = self.class2idx[new_class_idx]
+                    if not (
+                        (class_name == new_class_name == "buy")
+                        or (class_name == new_class_name == "sell")
+                    ):
+                        class_name = "neutral"
+                        break
+                if class_name == "buy":
+                    model_output[candle_idx] = 1
+                elif class_name == "sell":
                     model_output[candle_idx] = -1
                 pbar.update()
 
