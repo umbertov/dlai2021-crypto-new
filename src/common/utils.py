@@ -243,6 +243,5 @@ def compute_confusion_matrix(logits, targets, num_classes):
     return M.confusion_matrix(
         F.softmax(logits.detach(), dim=-1),
         targets.detach().view(-1),
-        normalize="true",  # normalize over targets ('true') or predictions ('pred')
         num_classes=num_classes,
     )

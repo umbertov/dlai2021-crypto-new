@@ -69,16 +69,16 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
         if prediction == 1:
             if self.position.is_short:
                 self.position.close()
-            if self.go_long and self.position.size < 0.9:
+            if self.go_long and not self.position:
                 sl, tp = self._long_sl_tp_prices(price)
                 self.buy(size=self.position_size_pct, tp=tp, sl=sl)
         elif prediction == -1:
             if self.position.is_long:
                 self.position.close()
-            if self.go_short and self.position.size > -0.9:
+            if self.go_short and not self.position:
                 sl, tp = self._short_sl_tp_prices(price)
                 self.sell(size=self.position_size_pct, tp=tp, sl=sl)
-        elif position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
+        if position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
 
 
@@ -154,10 +154,11 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         feature_dataframe = self.data.df[input_columns]
 
         print("beginning to compute model predictions")
-        with tqdm(total=len(feature_dataframe) - input_length) as pbar:
+        with tqdm(total=len(feature_dataframe) - 2 * input_length) as pbar:
             for candle_idx in range(
                 input_length + 1,
                 len(feature_dataframe) - input_length,
+                input_length // 2,
             ):
                 input_dataframe = feature_dataframe.iloc[
                     (candle_idx - input_length) : candle_idx
@@ -176,21 +177,15 @@ class SequenceTaggerStrategy(ModelStrategyBase):
                     input_tensor = rearrange(input_tensor, "b s c -> b c s")
                 # class_indices :: [Batch, SeqLen]
                 class_indices = model.predict(input_tensor)
-                class_idx = class_indices[0, -1].item()
-                class_name = self.class2idx[class_idx]
-                for i in range(self.and_predictions):
-                    new_class_idx = class_indices[0, -1 - i].item()
-                    new_class_name = self.class2idx[new_class_idx]
-                    if not (
-                        (class_name == new_class_name == "buy")
-                        or (class_name == new_class_name == "sell")
-                    ):
-                        class_name = "neutral"
-                        break
-                if class_name == "buy":
-                    model_output[candle_idx] = 1
-                elif class_name == "sell":
-                    model_output[candle_idx] = -1
+                for i, class_idx in enumerate(class_indices[0, input_length // 2 :]):
+                    prediction_step = candle_idx - i
+                    class_idx = class_idx.item()
+                    class_name = self.class2idx[class_idx]
+                    if class_name == "buy":
+                        model_output[prediction_step] = 1
+                    elif class_name == "sell":
+                        model_output[prediction_step] = -1
+
                 pbar.update()
 
         return model_output
