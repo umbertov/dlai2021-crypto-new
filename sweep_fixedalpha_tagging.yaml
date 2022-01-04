@@ -22,9 +22,42 @@ parameters:
       - tcn_wide_shallow
       - tcn_wide_deep
 
+  train.early_stopping.patience:
+    distribution: constant
+    value: 15
+
+  train.pl_trainer.max_epochs:
+    distribution: constant
+    value: 80
+
+  train.pl_trainer.gradient_clip_val:
+    distribution: categorical
+    values: [ 1.0, 0.0, 0.5 ]
+
+  data.datamodule.batch_size.train:
+    distribution: categorical
+    values: [64,128,256]
+
+  optim.optimizer.lr:
+    distribution: categorical
+    values: [0.01, 0.001, 0.0001]
+
+
+  model.classification_loss_fn.minimum_weight:
+    distribution: categorical
+    values: [0.1, 0.05, 0.001]
+
+  model.classification_loss_fn.decay:
+    distribution: categorical
+    values: [ 0.9, 0.8 ]
+
+  model.classification_loss_fn.label_smoothing:
+    distribution: categorical
+    values: [0.0, 0.05]
+
   dataset_conf:
     distribution: constant
-    value: future_trend_classification
+    value: trend_fixclf_multivar
 
   dataset_conf.dataset_reader.trend_period:
     distribution: categorical
@@ -36,20 +69,12 @@ parameters:
 
   dataset_conf.zscore_scale_windows:
     distribution: categorical
-    values: ["by_open", True]
+    values: [False, True]
 
   dataset_conf.window_length:
-    distribution: categorical
-    values: [128,64]
+    distribution: constant
+    value: 128
 
   model.dropout:
     distribution: categorical
-    values: [0.1,0.2,0.5]
-
-  data.datamodule.batch_size.train:
-    distribution: categorical
-    values: [64,128,256]
-
-  optim.optimizer.lr:
-    distribution: categorical
-    values: [0.01, 0.001, 0.0001]
+    values: [0.1,0.2]

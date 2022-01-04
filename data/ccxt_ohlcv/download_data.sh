@@ -7,8 +7,8 @@
 # done
 
 # binance data
-for STABLE in "USDT" "BUSD"; do
-    for SYMBOL in "BTC" "ETH" "BNB" "DOGE" "ADA" "SOL" "DOT"; do
+for STABLE in "BUSD"; do
+    for SYMBOL in "BTC" "ETH" "BNB" "AAVE" "ATOM" "ADA" "DOGE" "SOL" "AVAX" "LUNA" "DOT"; do
         PAIR="${SYMBOL}/${STABLE}"
         echo downloading "$PAIR"...
         python -- ccxt_downloader.py --symbol="$PAIR" --exchange=binance

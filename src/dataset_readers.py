@@ -61,21 +61,16 @@ def read_yfinance_dataframe(path: str) -> pd.DataFrame:
     return dataframe
 
 
-def ColumnTransformer(function, name=None):
+def ColumnOp(function, name=None, **initial_args):
     if name is None:
         name = function.__name__
 
-    def Transformation(
-        input_column, target_column=None, is_input_feature=False, **additional_args
-    ):
-        target_column = target_column or f"{name}({input_column})"
-        if is_input_feature:
-            target_column = f"Feature{target_column}"
+    def Transformation(input_column, to=None, **additional_args):
+        to = to or f"{name}({input_column})"
+        all_args = initial_args | additional_args
 
         def apply(dataframe):
-            dataframe[target_column] = function(
-                dataframe[input_column].copy(), **additional_args
-            )
+            dataframe[to] = function(dataframe[input_column].copy(), **all_args)
             return dataframe
 
         return apply
@@ -83,7 +78,7 @@ def ColumnTransformer(function, name=None):
     return Transformation
 
 
-def DataframeTransformer(function, **f_kwargs):
+def DfOp(function, **f_kwargs):
     return lambda *args, **kwargs: lambda df: function(df, *args, **f_kwargs, **kwargs)
 
 
@@ -110,25 +105,21 @@ def remove_leading_trailing_nans(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[leading_index:trailing_index]
 
 
-Log = ColumnTransformer(np.log, name="Log")
-PctChange = ColumnTransformer(lambda col: col.pct_change() + 1, name="PctChange")
-Shift = ColumnTransformer(lambda col: col.shift(-1), name="Shift")
+Log = ColumnOp(np.log, name="Log")
+PctChange = ColumnOp(lambda col: col.pct_change() + 1, name="PctChange")
+Shift = ColumnOp(lambda col: col.shift(-1), name="Shift")
 LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
-Sma = lambda col, n: ColumnTransformer(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(
-    col
-)
-Std = lambda col, n: ColumnTransformer(lambda df: df.rolling(n).std(), name=f"Std{n}")(
-    col
-)
-RollingSum = ColumnTransformer(lambda col, window: col.rolling(window).sum())
-RollingMin = ColumnTransformer(lambda col, window: col.rolling(window).min())
-RollingMax = ColumnTransformer(lambda col, window: col.rolling(window).min())
-Bins = ColumnTransformer(lambda col, bins: pd.cut(col, bins), name="Bins")
-BinCodes = ColumnTransformer(lambda col: col.values.codes, name="BinCodes")
+Sma = lambda col, n: ColumnOp(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(col)
+Std = lambda col, n: ColumnOp(lambda df: df.rolling(n).std(), name=f"Std{n}")(col)
+RollingSum = ColumnOp(lambda col, window: col.rolling(window).sum())
+RollingMin = ColumnOp(lambda col, window: col.rolling(window).min())
+RollingMax = ColumnOp(lambda col, window: col.rolling(window).min())
+Bins = ColumnOp(lambda col, bins: pd.cut(col, bins), name="Bins")
+BinCodes = ColumnOp(lambda col: col.values.codes, name="BinCodes")
 
-Strip = DataframeTransformer(remove_leading_trailing_nans)
+Strip = DfOp(remove_leading_trailing_nans)
 
-RSI = ColumnTransformer(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
+RSI = ColumnOp(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
 
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
@@ -137,19 +128,18 @@ def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
     else:
         by_df = df[by]
     mean = by_df.rolling(period).mean()
-    std = 1e-30 + stddev_mult * by_df.rolling(period).std()
+    std = stddev_mult * by_df.rolling(period).std()
+    std[std == 0] = 1
     return df.sub(mean, axis=0).div(std, axis=0).ffill()
 
 
 def ZScoreNormalize(
     colname: str, period: int, stddev_mult: float = 2.0, target_column=None, by=None
 ):
-    def transformer(df):
+    def t(df):
         return zscore_norm_dataframe(df, period=period, stddev_mult=stddev_mult, by=by)
 
-    return ColumnTransformer(transformer, name=f"Zscore{period}")(
-        colname, target_column=target_column
-    )
+    return ColumnOp(t, name=f"Zscore{period}")(colname, to=target_column)
 
 
 def Diff(col1, col2, logarithmic=False):
@@ -186,7 +176,7 @@ def resample_ohlcv(df: pd.DataFrame, resample_freq: str) -> pd.DataFrame:
 Resample = lambda resample_freq: lambda df: resample_ohlcv(df, resample_freq)
 
 
-DateRangeCut = DataframeTransformer(
+DateRangeCut = DfOp(
     lambda df, start_date, end_date: remove_leading_trailing_nans(
         df.loc[start_date:end_date]
     )
@@ -279,7 +269,7 @@ def rolling_sums(windows):
             RollingSum(
                 f"Log(PctChange(Open))",
                 window=window,
-                target_column=f"LogCumReturn{window}(Open)",
+                to=f"LogCumReturn{window}(Open)",
             )
             for window in windows
         ]
@@ -309,11 +299,11 @@ def features_from_1h(df):
 
 
 def logreturns_target():
-    return Shift(f"Log(PctChange(Open))", target_column="Target")
+    return Shift(f"Log(PctChange(Open))", to="Target")
 
 
 def returns_target():
-    return Shift(f"PctChange(Open)", target_column="Target")
+    return Shift(f"PctChange(Open)", to="Target")
 
 
 def cumlogreturn_target(periods=5):
@@ -330,14 +320,14 @@ def cumlogreturn_target(periods=5):
 def bin_column(column, bins):
     return Compose(
         Bins(column, bins=bins),
-        BinCodes(f"Bins({column})", target_column=f"{column}Categorical"),
+        BinCodes(f"Bins({column})", to=f"{column}Categorical"),
     )
 
 
 def qbin_column(column, q):
     return Compose(
         QBins(column, q=q),
-        BinCodes(f"QBins({column})", target_column=f"{column}Categorical"),
+        BinCodes(f"QBins({column})", to=f"{column}Categorical"),
     )
 
 
@@ -356,7 +346,7 @@ def qbins(df, q):
     return pd.cut(df, bins=bins)
 
 
-QBins = ColumnTransformer(qbins, name="QBins")
+QBins = ColumnOp(qbins, name="QBins")
 
 
 def zscore_normalize_target(period=200):
@@ -416,8 +406,8 @@ def center_candles(df, scaler=CandleCenter()):
     std = centered.rolling(200).std()
     std[std == 0] = 1
     centered = (centered) / std
-    # scale candles to have range in [0,1], mean 0.5 and variance 0.25
-    centered = 0.5 + centered * 0.125
+    # (Bullshit:) # scale candles to have range in [0,1], mean 0.5 and variance 0.25
+    # centered = 0.5 + centered * 0.125
     df[target_cols] = centered
     return df
 
@@ -427,7 +417,7 @@ def NormOHLC4(cols):
         ohlc4 = ohlc4_mean(df)
         ohlc4[ohlc4 == 0] = 1
         for col in cols:
-            df[f"NormOHLC4({col})"] = df[col] / (ohlc4 + 1e-12)
+            df[f"NormOHLC4({col})"] = df[col] / ohlc4
         return df
 
     return f
@@ -469,19 +459,19 @@ feature_set_2 = Compose(
     Strip(),
     red_or_green_candle,
     FutureMeanStdTarget(period=10),
-    Shift("RedOrGreen", target_column="FutureRedOrGreen"),
-    Shift("Open", target_column="FutureOpen"),
-    Shift("High", target_column="FutureHigh"),
-    Shift("Low", target_column="FutureLow"),
-    Shift("Close", target_column="FutureClose"),
-    Shift("Log(Open)", target_column="Log(FutureOpen)"),
-    Shift("Log(High)", target_column="Log(FutureHigh)"),
-    Shift("Log(Low)", target_column="Log(FutureLow)"),
-    Shift("Log(Close)", target_column="Log(FutureClose)"),
-    Shift("CenteredOpen", target_column="CenteredFutureOpen"),
-    Shift("CenteredHigh", target_column="CenteredFutureHigh"),
-    Shift("CenteredLow", target_column="CenteredFutureLow"),
-    Shift("CenteredClose", target_column="CenteredFutureClose"),
+    Shift("RedOrGreen", to="FutureRedOrGreen"),
+    Shift("Open", to="FutureOpen"),
+    Shift("High", to="FutureHigh"),
+    Shift("Low", to="FutureLow"),
+    Shift("Close", to="FutureClose"),
+    Shift("Log(Open)", to="Log(FutureOpen)"),
+    Shift("Log(High)", to="Log(FutureHigh)"),
+    Shift("Log(Low)", to="Log(FutureLow)"),
+    Shift("Log(Close)", to="Log(FutureClose)"),
+    Shift("CenteredOpen", to="CenteredFutureOpen"),
+    Shift("CenteredHigh", to="CenteredFutureHigh"),
+    Shift("CenteredLow", to="CenteredFutureLow"),
+    Shift("CenteredClose", to="CenteredFutureClose"),
     Strip(),
 )
 
@@ -576,7 +566,7 @@ example_reader = lambda: Compose(
     feature_set_1,
     returns_target(),
     bin_target(bins=[0.0, 0.999, 1.001, float("inf")]),
-    Log("Target", target_column="Target"),
+    Log("Target", to="Target"),
     zscore_normalize_target(period=200),
     Strip(),
     DebugIfNan(),
@@ -630,14 +620,14 @@ def zscore_normalize_columns(
     return Compose(*normalizers)
 
 
-MinMaxScaler = ColumnTransformer(minmax_scale_df, name="MinMax")
+MinMaxScaler = ColumnOp(minmax_scale_df, name="MinMax")
 
 minmax_ohlcv = Compose(
     MinMaxScaler("Open"),
     MinMaxScaler("High"),
     MinMaxScaler("Low"),
     MinMaxScaler("Close"),
-    Shift("MinMax(Close)", target_column="FutureClose"),
+    Shift("MinMax(Close)", to="FutureClose"),
 )
 
 minmax_reader = lambda: Compose(
@@ -697,11 +687,11 @@ def zscore_by_open_reader(resample, zscore_period=100, std_mult=1.0):
         Resample(resample),
         LogPctChange(col="Open"),
         zscore_by_open(period=zscore_period, std_mult=std_mult),
-        Shift(f"Zscore{zscore_period}(Open)", target_column="FutureOpen"),
-        Shift(f"Zscore{zscore_period}(High)", target_column="FutureHigh"),
-        Shift(f"Zscore{zscore_period}(Low)", target_column="FutureLow"),
-        Shift(f"Zscore{zscore_period}(Close)", target_column="FutureClose"),
-        Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+        Shift(f"Zscore{zscore_period}(Open)", to="FutureOpen"),
+        Shift(f"Zscore{zscore_period}(High)", to="FutureHigh"),
+        Shift(f"Zscore{zscore_period}(Low)", to="FutureLow"),
+        Shift(f"Zscore{zscore_period}(Close)", to="FutureClose"),
+        Shift("Log(PctChange(Open))", to="FutureLogReturn"),
         Strip(),
         lambda df: df.dropna(),
         DebugIfNan(),
@@ -714,11 +704,11 @@ def zscore_by_ohlc4_reader(resample, zscore_period=100, std_mult=1.0):
         Resample(resample),
         LogPctChange(col="Open"),
         zscore_by_ohlc4(period=zscore_period, std_mult=std_mult),
-        Shift(f"Zscore{zscore_period}(Open)", target_column="FutureOpen"),
-        Shift(f"Zscore{zscore_period}(High)", target_column="FutureHigh"),
-        Shift(f"Zscore{zscore_period}(Low)", target_column="FutureLow"),
-        Shift(f"Zscore{zscore_period}(Close)", target_column="FutureClose"),
-        Shift("Log(PctChange(Open))", target_column="FutureLogReturn"),
+        Shift(f"Zscore{zscore_period}(Open)", to="FutureOpen"),
+        Shift(f"Zscore{zscore_period}(High)", to="FutureHigh"),
+        Shift(f"Zscore{zscore_period}(Low)", to="FutureLow"),
+        Shift(f"Zscore{zscore_period}(Close)", to="FutureClose"),
+        Shift("Log(PctChange(Open))", to="FutureLogReturn"),
         Strip(),
         lambda df: df.dropna(),
         DebugIfNan(),
@@ -768,6 +758,63 @@ zscore_cumreturn_gtzero_reader = lambda normalize_colnames: Compose(
     # lambda df: df.ffill(),
     DebugIfEmpty,
 )
+
+
+def goodtargets(
+    trend_period=10,
+    target_col="TargetCategorical",
+    alpha=0.01,
+    std_mult=1.0,
+):
+    return Compose(
+        lambda df: target_categorical_trend(
+            df, trend_period=trend_period, target_col=target_col, alpha=alpha
+        ),
+        lambda df: target_categorical_adaptive_trend(
+            df,
+            trend_period=trend_period,
+            target_col="TargetAdaCategorical",
+            std_mult=std_mult,
+        ),
+        Strip(),
+        lambda df: df.ffill(),
+    )
+
+
+def goodfeatures():
+    scaled_columns = ["Open", "High", "Low", "Close", "Volume", "Log(PctChange(Close))"]
+    return Compose(
+        LogPctChange("Close"),
+        zscore_normalize_columns(scaled_columns, period=10),
+        zscore_normalize_columns(scaled_columns, period=30),
+        zscore_normalize_columns(scaled_columns, period=50),
+        zscore_normalize_columns(scaled_columns, period=100),
+        zscore_normalize_columns(scaled_columns, period=200),
+        zscore_normalize_columns(scaled_columns, period=2000),
+        RSI("Close"),
+    )
+
+
+def goodfeatures_reader(
+    resample="5min",
+    trend_period=10,
+    target_col="TargetCategorical",
+    alpha=0.01,
+    std_mult=1.0,
+):
+    return Compose(
+        try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
+        Resample(resample),
+        goodfeatures(),
+        goodtargets(
+            trend_period=trend_period,
+            target_col=target_col,
+            alpha=alpha,
+            std_mult=std_mult,
+        ),
+        Strip(),
+        lambda df: df.ffill(),
+    )
 
 
 GTZERO_BINS = [float("-inf"), 0, float("inf")]

@@ -10,10 +10,13 @@ defaults:
 
 model:
   model:
-    num_channels: [16,32,64,128]
-    dilated_conv: True
-    kernel_size: 4
-    clf_hidden_sizes: [128,64]
+    feature_extractor:
+      tcn:
+        num_channels: [32,32,64,64]
+        kernel_size: 4
+      lstm:
+        hidden_size: 64
+        num_layers: 2
 
 dataset_conf:
   channels_last: False

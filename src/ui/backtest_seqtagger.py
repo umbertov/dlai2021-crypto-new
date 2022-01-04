@@ -85,9 +85,8 @@ INSTANCE_NUMBER = sidebar.slider(
     max_value=len(val_dataset.datasets[DATASET_NUMBER].window_indices),
     value=0,
 )
-indices = val_dataset.datasets[DATASET_NUMBER].window_indices[INSTANCE_NUMBER]
-st.write(indices)
 
+indices = val_dataset.datasets[DATASET_NUMBER].window_indices[INSTANCE_NUMBER]
 full_dataframe = val_dataset.datasets[DATASET_NUMBER].dataframe
 dataframe = full_dataframe.iloc[indices.numpy()]
 input_tensors, *targets = [

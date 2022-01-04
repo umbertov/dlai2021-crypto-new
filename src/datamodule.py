@@ -133,6 +133,7 @@ def main(conf: omegaconf.DictConfig):
         else:
             cat, cont = targets[0], None
         model_out = model(ins, categorical_targets=cat, continuous_targets=cont)
+    return locals()
 
 
 if __name__ == "__main__":
@@ -140,4 +141,4 @@ if __name__ == "__main__":
     cfg = None
     model = None
     model_out = None
-    main()
+    main_locals = main()

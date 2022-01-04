@@ -9,7 +9,6 @@ model:
       _target_: src.models.LstmModel
       in_size: ${length:${dataset_conf.input_columns}}
       hidden_size: 128
-      window_length: ${dataset_conf.window_length}
       num_layers: 1
       dropout:
         ${model.dropout}

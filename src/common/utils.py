@@ -97,6 +97,8 @@ def register_custom_resolvers():
         OmegaConf.register_new_resolver("length", lambda x: len(x))
     if not OmegaConf.has_resolver("lengthMinusOne"):
         OmegaConf.register_new_resolver("lengthMinusOne", lambda x: len(x) - 1)
+    if not OmegaConf.has_resolver("last"):
+        OmegaConf.register_new_resolver("last", lambda x: x[-1])
 
 
 register_custom_resolvers()

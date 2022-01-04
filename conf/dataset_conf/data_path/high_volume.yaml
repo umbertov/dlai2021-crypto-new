@@ -1,0 +1,1 @@
+data_path: ${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/high_volume/*.csv

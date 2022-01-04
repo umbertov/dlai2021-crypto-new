@@ -1,3 +1,4 @@
+from einops.einops import rearrange
 from torch import nn
 import torch.nn.init as I
 
@@ -27,11 +28,16 @@ def init_lstm(cell, gain=1):
 class LstmModel(nn.Module):
     forecast = compute_forecast
 
-    def __init__(self, in_size, hidden_size, window_length, num_layers, dropout=0.0):
+    def __init__(
+        self,
+        in_size,
+        hidden_size,
+        num_layers,
+        dropout=0.0,
+    ):
         super().__init__()
         self.in_size = in_size
         self.hidden_size = hidden_size
-        self.window_length = window_length
         self.num_layers = num_layers
         self.dropout = dropout
         self.lstm = nn.LSTM(

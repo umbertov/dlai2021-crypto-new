@@ -5,20 +5,20 @@ model:
   num_inputs: ${length:${dataset_conf.input_columns}}
   num_classes: ${dataset_conf.n_classes}
   sequence_length: ${dataset_conf.window_length}
-  num_channels: [16,32]
+  num_channels: [16,32,64,64]
   dropout: ${model.dropout}
   kernel_size: 3
   compression: 1
   channels_last: ${dataset_conf.channels_last}
   residual: True
-  clf_hidden_sizes: [16]
+  clf_hidden_sizes: [128]
   activation: ${model.activation}
   dilated_conv: True
 classification_loss_fn: 
   _target_: src.dyn_loss.DynamicWeightCrossEntropy
   n_classes: ${dataset_conf.n_classes}
-  decay: 0.8
-  minimum_weight: 0.1
+  decay: 0.9
+  minimum_weight: 0.08
   label_smoothing: 0.0
 regression_loss_fn: null
 reconstruction_loss_fn: null

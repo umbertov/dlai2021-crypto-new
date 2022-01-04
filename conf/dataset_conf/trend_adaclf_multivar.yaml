@@ -2,22 +2,24 @@ defaults:
   - data_path: btc_ccxt.yaml
 
 dataset_reader:
-  _target_: src.dataset_readers.feature_set_2_trendprediction_reader
+  _target_: src.dataset_readers.goodfeatures_reader
   resample: 5min
   trend_period: 10
-  target_col: TargetCategorical
-  alpha: 0.008
+  std_mult: 2.0
 
 input_columns:
-  - NormOHLC4(Open)
-  - NormOHLC4(High)
-  - NormOHLC4(Low)
-  - NormOHLC4(Close)
-  - NormOHLC4(Sma9(Open))
-  - NormOHLC4(Sma26(Open))
+  - Zscore10(Close)
+  - Zscore30(Close)
+  - Zscore50(Close)
+  - Zscore100(Close)
+  - Zscore200(Close)
+  - Zscore10(Volume)
+  - Zscore30(Volume)
+  - Zscore50(Log(PctChange(Close)))
+  - Zscore200(Log(PctChange(Close)))
 continuous_targets: null
 categorical_targets:
-  - TargetCategorical
+  - TargetAdaCategorical
 n_classes: 3
 train_period:
   start: 2017-01-01
@@ -32,4 +34,4 @@ zscore_scale_windows: False
 future_window_length: 0
 return_dicts: True
 clamp_values: null
-channels_last: True
+channels_last: False

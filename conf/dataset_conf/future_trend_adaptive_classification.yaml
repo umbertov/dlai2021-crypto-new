@@ -1,5 +1,5 @@
 defaults:
-  - data_path: ccxt_all.yaml
+  - data_path: btc_ccxt.yaml
 
 dataset_reader:
   _target_: src.dataset_readers.feature_set_2_trendprediction_reader
