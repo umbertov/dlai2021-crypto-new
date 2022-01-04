@@ -48,7 +48,8 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
     def _long_sl_tp_prices(self, price):
         sl, tp = None, None
         if self.price_delta_pct is not None:
-            tp, sl = price * (1 + np.r_[1, -1] * self.price_delta_pct)
+            tp = price * (1 + self.price_delta_pct)
+            sl = price * (1 - self.price_delta_pct)
         return sl, tp
 
     def _short_sl_tp_prices(self, price):
@@ -154,7 +155,9 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         feature_dataframe = self.data.df[input_columns]
 
         print("beginning to compute model predictions")
-        with tqdm(total=len(feature_dataframe) - 2 * input_length) as pbar:
+        with tqdm(
+            total=(len(feature_dataframe) - 2 * input_length) // (input_length // 2)
+        ) as pbar:
             for candle_idx in range(
                 input_length + 1,
                 len(feature_dataframe) - input_length,
@@ -222,15 +225,6 @@ class OptimalSequenceTaggerStrategy(ModelStrategyBase):
             ):
                 class_idx = int(labels.iloc[candle_idx])
                 class_name = self.class2idx[class_idx]
-                for i in range(self.and_predictions):
-                    new_class_idx = int(labels.iloc[-1 - i])
-                    new_class_name = self.class2idx[new_class_idx]
-                    if not (
-                        (class_name == new_class_name == "buy")
-                        or (class_name == new_class_name == "sell")
-                    ):
-                        class_name = "neutral"
-                        break
                 if class_name == "buy":
                     model_output[candle_idx] = 1
                 elif class_name == "sell":
