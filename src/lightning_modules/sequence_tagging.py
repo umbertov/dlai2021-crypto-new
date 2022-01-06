@@ -34,6 +34,9 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
                 "accuracy": Accuracy(
                     average="macro", num_classes=self.hparams.model.num_classes
                 ),
+                "updownaccuracy": Accuracy(
+                    average="macro", num_classes=2, ignore_index=1
+                ),
                 "precision": Precision(
                     average="macro", num_classes=self.hparams.model.num_classes
                 ),
