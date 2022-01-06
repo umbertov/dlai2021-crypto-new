@@ -57,7 +57,6 @@ class BaseTimeSeriesModule(pl.LightningModule):
             )
         )
         assert len(results) > 0
-        assert not all(x is None for x in results)
         for d in results:
             out.update(d)
 
@@ -73,7 +72,7 @@ class BaseTimeSeriesModule(pl.LightningModule):
 
     def step(self, batch, batch_idx, mode):
         if isinstance(batch, dict):
-            step_result = self.forward(**batch)
+            step_result = self.forward(**batch, mode=mode)
         elif isinstance(batch, list):
             step_result = self.forward(*batch)
         else:

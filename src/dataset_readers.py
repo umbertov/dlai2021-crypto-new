@@ -781,18 +781,30 @@ def goodtargets(
     )
 
 
-def goodfeatures():
-    scaled_columns = ["Open", "High", "Low", "Close", "Volume", "Log(PctChange(Close))"]
+def goodfeatures(
+    zscore_periods=[10, 20, 30, 50, 100, 200, 2000],
+    scaled_columns=["Open", "High", "Low", "Close", "Volume", "Log(PctChange(Close))"],
+):
     return Compose(
         LogPctChange("Close"),
-        zscore_normalize_columns(scaled_columns, period=10),
-        zscore_normalize_columns(scaled_columns, period=30),
-        zscore_normalize_columns(scaled_columns, period=50),
-        zscore_normalize_columns(scaled_columns, period=100),
-        zscore_normalize_columns(scaled_columns, period=200),
-        zscore_normalize_columns(scaled_columns, period=2000),
+        *[
+            zscore_normalize_columns(scaled_columns, period=period)
+            for period in zscore_periods
+        ],
         RSI("Close"),
     )
+
+
+def sma(period, column):
+    def f(df):
+        df[f"Sma({column})"] = df[column].rolling(period).mean()
+        return df
+
+    return f
+
+
+def smas(periods: list[int], columns=list[str]):
+    return Compose(*[sma(period, column) for period in periods for column in columns])
 
 
 def goodfeatures_reader(
@@ -801,11 +813,13 @@ def goodfeatures_reader(
     target_col="TargetCategorical",
     alpha=0.01,
     std_mult=1.0,
+    zscore_periods=[10, 20, 30, 50, 100, 200, 2000],
+    scaled_columns=["Open", "High", "Low", "Close", "Volume", "Log(PctChange(Close))"],
 ):
     return Compose(
         try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
         Resample(resample),
-        goodfeatures(),
+        goodfeatures(zscore_periods=zscore_periods, scaled_columns=scaled_columns),
         goodtargets(
             trend_period=trend_period,
             target_col=target_col,

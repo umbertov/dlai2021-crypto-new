@@ -35,3 +35,4 @@ dropout: 0.1
 activation:
   _target_: torch.nn.LeakyReLU
 flatten_input: False
+prediction_threshold: 0.7 # or none for standard argmax prediction

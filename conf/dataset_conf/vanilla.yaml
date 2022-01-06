@@ -1,36 +1,34 @@
-
 defaults:
-  - data_path: yahoofinance5min.yaml
+  - data_path: btc_ccxt.yaml
 
-window_length: 3
 dataset_reader:
-  _target_: src.dataset_readers.resampling_feature_set_2_reader
-  resample: 30min
+  _target_: src.dataset_readers.goodfeatures_reader
+  resample: 5min
+  trend_period: 20
+  alpha: 0.02
+  zscore_periods: []
 
 input_columns:
   - Open
   - High
   - Low
   - Close
-  - Sma9(Open)
-  - Std9(Open)
-  - Sma26(Open)
-  - Std26(Open)
+  - Volume
 continuous_targets:
-  - FutureClose
 categorical_targets:
-  #  - TargetCategorical
+  - TargetCategorical
 n_classes: 3
 train_period:
-  start: 2019-05-01
+  start: 2017-01-01
   end: 2021-10-01
 val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01
-window_skip: 1
+window_skip: 128
+window_length: 128
 minmax_scale_windows: False
 zscore_scale_windows: False
 future_window_length: 0
-return_dicts: False
+return_dicts: True
 clamp_values: null
-channels_last: True
+channels_last: False

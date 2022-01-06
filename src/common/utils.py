@@ -221,27 +221,24 @@ assert (
 os.chdir(PROJECT_ROOT)
 
 
-def compute_classification_metrics(logits, targets, num_classes):
-    pred_probabilities = F.softmax(logits, dim=-1)
+def compute_classification_metrics(preds, targets, num_classes):
     return {
         "metrics/accuracy": M.accuracy(
-            pred_probabilities, targets, num_classes=num_classes, average="macro"
+            preds, targets, num_classes=2, average="macro", ignore_index=1
         ),
         "metrics/precision": M.precision(
-            pred_probabilities, targets, num_classes=num_classes, average="macro"
+            preds, targets, num_classes=num_classes, average="macro"
         ),
         "metrics/recall": M.recall(
-            pred_probabilities, targets, num_classes=num_classes, average="macro"
+            preds, targets, num_classes=num_classes, average="macro"
         ),
-        "metrics/f1": M.f1(
-            pred_probabilities, targets, num_classes=num_classes, average="macro"
-        ),
+        "metrics/f1": M.f1(preds, targets, num_classes=num_classes, average="macro"),
     }
 
 
-def compute_confusion_matrix(logits, targets, num_classes):
+def compute_confusion_matrix(predictions, targets, num_classes):
     return M.confusion_matrix(
-        F.softmax(logits.detach(), dim=-1),
-        targets.detach().view(-1),
+        predictions.view(-1),
+        targets.view(-1),
         num_classes=num_classes,
     )
