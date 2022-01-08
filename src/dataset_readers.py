@@ -475,6 +475,37 @@ feature_set_2 = Compose(
     Strip(),
 )
 
+OHLC = ["Open", "High", "Low", "Close"]
+
+
+def target_volatility_classification(
+    df, trend_period=20, target_col="TargetCategoricalVolatility", std_mult=3.0
+):
+    returns = df.Close.pct_change()
+    std_returns = returns.rolling(trend_period).std()
+    df["RollingReturnVolatility"] = std_returns
+
+    upper_barrier = df.Close * (1 + std_returns * std_mult)
+    lower_barrier = df.Close * (1 - std_returns * std_mult)
+
+    future_prices = df.Close.shift(-trend_period)
+    future_maxes = future_prices.rolling(trend_period).max()
+    future_mins = future_prices.rolling(trend_period).min()
+    buy_signals = (future_maxes > upper_barrier) & ~(future_mins < lower_barrier)
+    sell_signals = (future_mins < lower_barrier) & ~(future_maxes < upper_barrier)
+
+    buy_signals, sell_signals = buy_signals.astype(int), sell_signals.astype(int)
+
+    assert not (buy_signals & sell_signals).any()
+
+    # combine signals in the [0,1,2] range
+    signals = buy_signals - sell_signals + 1
+
+    if target_col is None:
+        return signals
+    df[target_col] = signals
+    return df
+
 
 def target_categorical_trend(
     df, trend_period=10, target_col="TargetCategorical", alpha=0.01
@@ -776,6 +807,12 @@ def goodtargets(
             target_col="TargetAdaCategorical",
             std_mult=std_mult,
         ),
+        lambda df: target_volatility_classification(
+            df,
+            trend_period=trend_period,
+            target_col="TargetCategoricalVolatility",
+            std_mult=std_mult,
+        ),
         Strip(),
         lambda df: df.ffill(),
     )
@@ -819,13 +856,13 @@ def goodfeatures_reader(
     return Compose(
         try_read_dataframe(read_yfinance_dataframe, read_binance_klines_dataframe),
         Resample(resample),
-        goodfeatures(zscore_periods=zscore_periods, scaled_columns=scaled_columns),
         goodtargets(
             trend_period=trend_period,
             target_col=target_col,
             alpha=alpha,
             std_mult=std_mult,
         ),
+        goodfeatures(zscore_periods=zscore_periods, scaled_columns=scaled_columns),
         Strip(),
         lambda df: df.ffill(),
     )

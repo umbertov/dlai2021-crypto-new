@@ -224,15 +224,15 @@ os.chdir(PROJECT_ROOT)
 def compute_classification_metrics(preds, targets, num_classes):
     return {
         "metrics/accuracy": M.accuracy(
-            preds, targets, num_classes=2, average="macro", ignore_index=1
+            preds, targets, num_classes=num_classes, average="none"
         ),
         "metrics/precision": M.precision(
-            preds, targets, num_classes=num_classes, average="macro"
+            preds, targets, num_classes=num_classes, average="none"
         ),
         "metrics/recall": M.recall(
-            preds, targets, num_classes=num_classes, average="macro"
+            preds, targets, num_classes=num_classes, average="none"
         ),
-        "metrics/f1": M.f1(preds, targets, num_classes=num_classes, average="macro"),
+        "metrics/f1": M.f1(preds, targets, num_classes=num_classes, average="none"),
     }
 
 

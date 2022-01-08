@@ -14,19 +14,30 @@ from src.common.utils import get_model
 from abc import ABCMeta, abstractmethod
 
 
-class ModelStrategyBase(Strategy, metaclass=ABCMeta):
+class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
     go_long: bool = True
     go_short: bool = True
     price_delta_pct: Optional[float] = None
+    volatility_std_mult: Optional[float] = None
     position_size_pct: float = 0.999
     cfg: "omegaconf.DictConfig"
     model: torch.nn.Module = None
+    trailing_mul: Optional[int] = None
 
     def init(self):
         super().init()
 
         self.model_output = self.I(self.get_model_output)
+        if self.volatility_std_mult is not None:
+            assert self.price_delta_pct is None
+            self.volatility = self.I(self.get_volatility)
+        if self.trailing_mul:
+            self.set_trailing_sl(self.trailing_mul)
         # self.model_output = self.get_model_output()
+
+    @abstractmethod
+    def get_volatility(self):
+        raise NotImplementedError
 
     @abstractmethod
     def get_model_output(self):
@@ -34,16 +45,28 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
 
     def _long_sl_tp_prices(self, price):
         sl, tp = None, None
-        if self.price_delta_pct is not None:
+        if self.trailing_mul:
+            pass
+        elif self.price_delta_pct is not None:
             tp = price * (1 + self.price_delta_pct)
             sl = price * (1 - self.price_delta_pct)
+        elif self.volatility_std_mult is not None:
+            tp = price * (1 + self.volatility[-1] * self.volatility_std_mult)
+            sl = price * (1 - self.volatility[-1] * self.volatility_std_mult)
+        assert sl or tp is None or sl < price < tp
         return sl, tp
 
     def _short_sl_tp_prices(self, price):
         sl, tp = None, None
-        if self.price_delta_pct is not None:
+        if self.trailing_mul:
+            pass
+        elif self.price_delta_pct is not None:
             sl = price * (1 + self.price_delta_pct)
             tp = price * (1 - self.price_delta_pct)
+        elif self.volatility_std_mult is not None:
+            sl = price * (1 + self.volatility[-1] * self.volatility_std_mult)
+            tp = price * (1 - self.volatility[-1] * self.volatility_std_mult)
+        assert sl or tp is None or sl > price > tp
         return sl, tp
 
     def next(self):
@@ -56,17 +79,23 @@ class ModelStrategyBase(Strategy, metaclass=ABCMeta):
             if is_open:
                 position_duration = len(self.data) - last_trade.entry_bar
         if prediction == 1:
-            if self.position.is_short:
-                self.position.close()
+            # if self.position.is_short:
+            #     self.position.close()
             if self.go_long and not self.position:
-                sl, tp = self._long_sl_tp_prices(price)
-                self.buy(size=self.position_size_pct, tp=tp, sl=sl)
+                if self.trailing_mul:
+                    self.buy(size=self.position_size_pct)
+                else:
+                    sl, tp = self._long_sl_tp_prices(price)
+                    self.buy(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
         elif prediction == -1:
             if self.position.is_long:
                 self.position.close()
             if self.go_short and not self.position:
-                sl, tp = self._short_sl_tp_prices(price)
-                self.sell(size=self.position_size_pct, tp=tp, sl=sl)
+                if self.trailing_mul:
+                    self.sell(size=self.position_size_pct)
+                else:
+                    sl, tp = self._short_sl_tp_prices(price)
+                    self.sell(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
         if position_duration > 2 * self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
 
@@ -88,6 +117,10 @@ class SequenceTaggerStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
     class2idx = {0: "sell", 1: "hold", 2: "buy"}
     prediction_threshold = 0.7
+
+    @torch.no_grad()
+    def get_volatility(self):
+        return self.data.df["RollingReturnVolatility"]
 
     @torch.no_grad()
     def get_model_output(self):
@@ -151,10 +184,7 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         return model_output
 
 
-class OptimalSequenceTaggerStrategy(ModelStrategyBase):
-    cfg: "omegaconf.DictConfig" = None
-    class2idx = {0: "sell", 1: "hold", 2: "buy"}
-
+class OptimalSequenceTaggerStrategy(SequenceTaggerStrategy):
     @torch.no_grad()
     def get_model_output(self):
         channels_last = self.cfg.dataset_conf.channels_last

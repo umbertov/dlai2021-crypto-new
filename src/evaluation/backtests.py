@@ -70,10 +70,10 @@ if __name__ == "__main__":
     price_delta_pct = None
 
     if args.backtest_start_pct is not None:
-        assert 0.0 < args.backtest_start_pct <= 1.0
+        assert 0.0 <= args.backtest_start_pct <= 1.0
         backtest_start = int(len(full_dataframe) * args.backtest_start_pct)
     if args.backtest_length_pct is not None:
-        assert 0.0 < args.backtest_length_pct < 1.0
+        assert 0.0 < args.backtest_length_pct <= 1.0
         backtest_length = int(len(full_dataframe) * args.backtest_length_pct)
 
     def backtest_model(
@@ -93,12 +93,18 @@ if __name__ == "__main__":
         stats = backtest.run(model=model.cuda(), cfg=cfg, **strategy_kwargs)
         return backtest, stats
 
+    volatility_std_mult = cfg.dataset_conf.dataset_reader.get("std_mult", None)
+    price_delta_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
+    print(f"{price_delta_pct=}")
+    print(f"{volatility_std_mult=}")
     backtest, stats = backtest_model(
         SequenceTaggerStrategy,
         go_short=args.go_short,
         go_long=True,
         position_size_pct=position_size,
-        price_delta_pct=cfg.dataset_conf.dataset_reader.alpha,
+        price_delta_pct=price_delta_pct,
+        volatility_std_mult=volatility_std_mult,
+        trailing_mul=None,
     )
     print(stats)
     backtest.plot(results=stats, plot_return=True, plot_equity=False)
@@ -108,7 +114,8 @@ if __name__ == "__main__":
         go_short=args.go_short,
         go_long=True,
         position_size_pct=position_size,
-        price_delta_pct=cfg.dataset_conf.dataset_reader.alpha,
+        price_delta_pct=price_delta_pct,
+        volatility_std_mult=volatility_std_mult,
     )
     print(optimal_stats)
     optimal_backtest.plot(results=optimal_stats, plot_return=True, plot_equity=False)

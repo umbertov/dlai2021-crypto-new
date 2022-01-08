@@ -1,3 +1,6 @@
+defaults:
+  - classification_loss_fn: crossentropy_dynweights.yaml
+
 _target_: src.lightning_modules.TimeSeriesClassifier
 name: tcn_seqtagger
 model:
@@ -14,12 +17,6 @@ model:
   clf_hidden_sizes: [128]
   activation: ${model.activation}
   dilated_conv: True
-classification_loss_fn: 
-  _target_: src.dyn_loss.DynamicWeightCrossEntropy
-  n_classes: ${dataset_conf.n_classes}
-  decay: 0.9
-  minimum_weight: 0.08
-  label_smoothing: 0.0
 regression_loss_fn: null
 reconstruction_loss_fn: null
 variational_beta: 1

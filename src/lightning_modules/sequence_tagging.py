@@ -8,6 +8,7 @@ import random
 import pytorch_lightning as pl
 from torchmetrics import F1, Accuracy, Precision, Recall
 import torchmetrics.functional as M
+from torchmetrics.metric import Metric
 
 from src.common.plot_utils import confusion_matrix_fig, plot_categorical_tensor
 from src.dyn_loss import DynamicWeightCrossEntropy
@@ -32,18 +33,21 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         metrics = lambda: nn.ModuleDict(
             {
                 "accuracy": Accuracy(
-                    average="macro", num_classes=self.hparams.model.num_classes
-                ),
-                "updownaccuracy": Accuracy(
-                    average="macro", num_classes=2, ignore_index=1
+                    average="none", num_classes=self.hparams.model.num_classes
                 ),
                 "precision": Precision(
-                    average="macro", num_classes=self.hparams.model.num_classes
+                    average="none", num_classes=self.hparams.model.num_classes
                 ),
                 "recall": Recall(
+                    average="none", num_classes=self.hparams.model.num_classes
+                ),
+                "f1": F1(average="none", num_classes=self.hparams.model.num_classes),
+                "f1_macro": F1(
                     average="macro", num_classes=self.hparams.model.num_classes
                 ),
-                "f1": F1(average="macro", num_classes=self.hparams.model.num_classes),
+                "f1_micro": F1(
+                    average="micro", num_classes=self.hparams.model.num_classes
+                ),
             }
         )
         self.metrics = nn.ModuleDict(

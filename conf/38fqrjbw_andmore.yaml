@@ -1,0 +1,191 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+dataset_conf:
+  data_path:
+    data_path: ${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/high_volume/*.csv
+  dataset_reader:
+    _target_: src.dataset_readers.goodfeatures_reader
+    resample: 5min
+    trend_period: 20
+    alpha: 0.015
+  input_columns:
+  - Zscore10(Close)
+  - Zscore30(Close)
+  - Zscore50(Close)
+  - Zscore100(Close)
+  - Zscore200(Close)
+  - Zscore10(Volume)
+  - Zscore30(Volume)
+  - Zscore50(Log(PctChange(Close)))
+  - Zscore200(Log(PctChange(Close)))
+  continuous_targets: null
+  categorical_targets:
+  - TargetCategorical
+  n_classes: 3
+  train_period:
+    start: '2017-01-01'
+    end: '2021-10-01'
+  val_period:
+    start: ${dataset_conf.train_period.end}
+    end: '2021-12-01'
+  window_skip: 128
+  window_length: 128
+  minmax_scale_windows: false
+  zscore_scale_windows: false
+  future_window_length: 0
+  return_dicts: true
+  clamp_values: null
+  channels_last: false
+data:
+  datamodule:
+    _target_: src.datamodule.MyDataModule
+    datasets:
+      train:
+        _target_: src.dataset.read_csv_datasets_from_glob
+        globstr: ${dataset_conf.data_path.data_path}
+        reader: ${dataset_conf.dataset_reader}
+        input_columns: ${dataset_conf.input_columns}
+        continuous_targets: ${dataset_conf.continuous_targets}
+        categorical_targets: ${dataset_conf.categorical_targets}
+        start_date: ${dataset_conf.train_period.start}
+        end_date: ${dataset_conf.train_period.end}
+        window_length: ${dataset_conf.window_length}
+        window_skip: ${dataset_conf.window_skip}
+        minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
+        zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
+        future_window_length: ${dataset_conf.future_window_length}
+        return_dicts: ${dataset_conf.return_dicts}
+        channels_last: ${dataset_conf.channels_last}
+      val:
+      - _target_: src.dataset.read_csv_datasets_from_glob
+        globstr: ${dataset_conf.data_path.data_path}
+        reader: ${dataset_conf.dataset_reader}
+        input_columns: ${dataset_conf.input_columns}
+        continuous_targets: ${dataset_conf.continuous_targets}
+        categorical_targets: ${dataset_conf.categorical_targets}
+        start_date: ${dataset_conf.val_period.start}
+        end_date: ${dataset_conf.val_period.end}
+        window_length: ${dataset_conf.window_length}
+        window_skip: ${dataset_conf.window_skip}
+        minmax_scale_windows: ${dataset_conf.minmax_scale_windows}
+        zscore_scale_windows: ${dataset_conf.zscore_scale_windows}
+        future_window_length: ${dataset_conf.future_window_length}
+        return_dicts: ${dataset_conf.return_dicts}
+        channels_last: ${dataset_conf.channels_last}
+      test: null
+    num_workers:
+      train: 4
+      val: 4
+      test: 4
+    batch_size:
+      train: 128
+      val: 256
+      test: 256
+logging:
+  val_check_interval: 1.0
+  progress_bar_refresh_rate: 5
+  wandb:
+    project: dlai-stonks-new
+    entity: null
+    log_model: all
+    mode: online
+    save_code: true
+  wandb_watch:
+    log: all
+    log_freq: 100
+  lr_monitor:
+    logging_interval: epoch
+    log_momentum: true
+losses:
+  classification_loss_fn: null
+  regression_loss_fn:
+    _target_: torch.nn.MSELoss
+  reconstruction_loss_fn: null
+  reconstruction_loss_weight: 1
+model:
+  classification_loss_fn:
+    _target_: src.dyn_loss.DynamicWeightCrossEntropy
+    n_classes: ${dataset_conf.n_classes}
+    decay: 0.9
+    minimum_weight: 0.2
+    label_smoothing: 0.0
+  _target_: src.lightning_modules.TimeSeriesClassifier
+  name: tcn_seqtagger
+  model:
+    _target_: src.models.Classifier
+    feature_extractor:
+      _target_: src.models.TcnLstmEncoder
+      tcn:
+        _target_: src.models.TcnEncoder
+        num_inputs: ${length:${dataset_conf.input_columns}}
+        num_channels:
+        - 16
+        - 32
+        - 64
+        - 128
+        dropout: ${model.dropout}
+        kernel_size: 2
+        compression: 1
+        channels_last: ${dataset_conf.channels_last}
+        residual: true
+        activation: ${model.activation}
+        dilated_conv: true
+      lstm:
+        _target_: src.models.LstmModel
+        in_size: ${last:${..tcn.num_channels}}
+        hidden_size: 64
+        num_layers: 2
+        dropout: ${model.dropout}
+    num_classes: ${dataset_conf.n_classes}
+    feature_dim: ${.feature_extractor.lstm.hidden_size}
+  regression_loss_fn: null
+  reconstruction_loss_fn: null
+  variational_beta: 1
+  reconstruction_loss_weight: 1
+  dropout: 0.1
+  activation:
+    _target_: torch.nn.LeakyReLU
+  flatten_input: false
+lr_scheduler:
+  name: no_scheduler
+  use_lr_scheduler: false
+  scheduler: null
+optim:
+  optimizer:
+    _target_: torch.optim.AdamW
+    lr: 0.001
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-15
+    weight_decay: 0
+  use_lr_scheduler: ${lr_scheduler.use_lr_scheduler}
+  lr_scheduler: ${lr_scheduler.scheduler}
+train:
+  deterministic: false
+  random_seed: 42
+  pl_trainer:
+    fast_dev_run: false
+    gpus: 1
+    precision: 32
+    max_epochs: 50
+    accumulate_grad_batches: 1
+    num_sanity_val_steps: 2
+    gradient_clip_val: 1.0
+  monitor_metric: val/loss
+  monitor_metric_mode: min
+  early_stopping:
+    patience: 20
+    verbose: false
+  model_checkpoints:
+    save_top_k: 2
+    verbose: true
+  stochastic_weight_averaging:
+    active: false
+    swa_epoch_start: 3
+core:
+  version: 0.0.1
+  tags:
+  - mytag
+experiment:
+  name: tcn-lstm fixalpha sweep

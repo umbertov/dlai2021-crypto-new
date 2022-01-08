@@ -1,0 +1,21 @@
+defaults:
+  - classification_loss_fn: crossentropy_dynweights.yaml
+
+_target_: src.lightning_modules.TimeSeriesClassifier
+name: tcn_seqtagger
+model:
+  _target_: src.models.Classifier
+  feature_extractor:  
+    _target_: torch.nn.Identity
+  num_classes: ${dataset_conf.n_classes}
+  feature_dim: ${length:${dataset_conf.input_columns}}
+regression_loss_fn: null
+reconstruction_loss_fn: null
+variational_beta: 1
+reconstruction_loss_weight:
+  1
+dropout: 0.1
+activation:
+  _target_: torch.nn.LeakyReLU
+flatten_input: False
+prediction_threshold: null

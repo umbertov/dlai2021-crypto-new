@@ -1,0 +1,49 @@
+defaults:
+  - data_path: btc_ccxt.yaml
+
+dataset_reader:
+  _target_: src.dataset_readers.goodfeatures_reader
+  resample: 5min
+  trend_period: 20
+  std_mult: 3.0
+  scaled_columns: 
+    - "Open"
+    - "High"
+    - "Low"
+    - "Close"
+    - "Volume"
+    - "Log(PctChange(Close))"
+    - "RollingReturnVolatility"
+
+input_columns:
+  - Zscore10(Close)
+  - Zscore30(Close)
+  - Zscore50(Close)
+  - Zscore100(Close)
+  - Zscore200(Close)
+  - Zscore10(Volume)
+  - Zscore30(Volume)
+  - Zscore50(Volume)
+  - Log(PctChange(Close))
+  - Zscore10(RollingReturnVolatility)
+  - Zscore30(RollingReturnVolatility)
+  - Zscore200(RollingReturnVolatility)
+
+continuous_targets: null
+categorical_targets:
+  - TargetCategoricalVolatility
+n_classes: 3
+train_period:
+  start: 2017-01-01
+  end: 2021-10-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-12-01
+window_skip: 128
+window_length: 128
+minmax_scale_windows: False
+zscore_scale_windows: False
+future_window_length: 0
+return_dicts: True
+clamp_values: null
+channels_last: False

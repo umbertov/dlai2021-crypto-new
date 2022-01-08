@@ -1,0 +1,15 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: linear_tagger.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+
+
+dataset_conf:
+  channels_last: True
+  return_dicts: True
+
