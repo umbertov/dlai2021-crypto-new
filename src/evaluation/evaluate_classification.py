@@ -1,42 +1,25 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from omegaconf.dictconfig import DictConfig
-from pytorch_lightning.core.lightning import LightningModule
 import torch
-from sys import argv
 from src.ui.ui_utils import get_run_dir
 from src.common.utils import (
-    compute_confusion_matrix,
     compute_classification_metrics,
-    get_hydra_cfg,
-    get_model,
     get_datamodule,
 )
 from src.lightning_modules.sequence_tagging import TimeSeriesClassifier
 
+from src.evaluation.common import (
+    get_cfg_model,
+    PROJECT,
+    RUN_ID,
+    ENTITY,
+    DEVICE,
+    move_dict,
+)
+
 # We don't ever need gradient descent here
 torch.set_grad_enabled(False)
-
-DEVICE = "cuda"
-
-ENTITY, PROJECT, RUN_ID = "erpi", "dlai-stonks-new", "wandb_run_id"
-
-
-def load_model_checkpoint(model, checkpoint_path):
-    return model.load_from_checkpoint(checkpoint_path=str(checkpoint_path))
-
-
-def get_cfg_model(
-    checkpoint_path=None, run_dir: Path = None
-) -> tuple[DictConfig, TimeSeriesClassifier]:
-    if checkpoint_path is not None and run_dir is not None:
-        cfg = get_hydra_cfg(config_path=(f"{run_dir}/files"), config_name="hparams")
-        model = load_model_checkpoint(get_model(cfg), checkpoint_path=checkpoint_path)
-    else:
-        cfg = get_hydra_cfg(overrides=argv[1:])
-        model = get_model(cfg)
-    print("Got Model and config!")
-    return cfg, model.to(DEVICE).eval()
 
 
 def parse_args():
@@ -50,12 +33,7 @@ def parse_args():
     parser.add_argument("--backtest-start-pct", default=None, type=float)
     args = parser.parse_args()
     assert args.use_split in ("train", "val")
-    PROJECT, RUN_ID = args.project, args.run_id
     return args
-
-
-def move_dict(d: dict, device="cpu") -> dict:
-    return {k: v.to(device) if hasattr(v, "to") else v for k, v in d.items()}
 
 
 def compute_metrics_on_dataset(dataset, model):
@@ -94,6 +72,7 @@ DATA_ROOT = "${oc.env:PROJECT_ROOT}/data"
 if __name__ == "__main__":
 
     args = parse_args()
+    PROJECT, RUN_ID = args.project, args.run_id
 
     run_dir: Path = get_run_dir(entity=ENTITY, project=PROJECT, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))

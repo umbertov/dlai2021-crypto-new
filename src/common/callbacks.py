@@ -45,37 +45,42 @@ class BacktestCallback(pl.Callback):
     def __init__(self, cfg: DictConfig, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cfg = cfg
+        self.volatility_std_mult = cfg.dataset_conf.dataset_reader.get("std_mult", None)
+        self.price_delta_pct = cfg.dataset_conf.dataset_reader.get(
+            "price_delta_pct", None
+        )
 
     def on_validation_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
         val_multi_dataset = trainer.datamodule.val_datasets[0]
-        datasets = [
-            d
-            for d in val_multi_dataset.datasets
-            if startswith_one_of(d.name, self.cfg.backtest.tested_tickers)
-        ]
+        datasets = val_multi_dataset.datasets
         assert len(datasets) > 0
         all_stats = {}
-        for dataset in datasets:
-            dataframe = dataset.dataframe
-            bt = Backtest(
-                dataframe,
-                SequenceTaggerStrategy,
-                cash=100_000,
-                commission=0.002,
-                exclusive_orders=True,
-            )
-            stats = bt.run(
-                model=pl_module,
-                cfg=self.cfg,
-                go_short=False,
-                go_long=True,
-            )
-            stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]
-            stats_dict = {k: v[0] for k, v in stats_df.T.to_dict().items()}
-            all_stats[dataset.name] = stats_dict
+        dataset = datasets[0]
+        dataframe = dataset.dataframe
+        bt = Backtest(
+            dataframe,
+            SequenceTaggerStrategy,
+            cash=1_000_000,
+            commission=0.002,
+            # exclusive_orders=True,
+        )
+        stats = bt.run(
+            model=pl_module,
+            cfg=self.cfg,
+            go_short=False,
+            go_long=True,
+            position_size_pct=0.5,
+            price_delta_pct=self.price_delta_pct,
+            volatility_std_mult=self.volatility_std_mult,
+            trailing_mul=None,
+            verbose=False,
+        )
+        stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]
+        stats_dict = {k: v[0] for k, v in stats_df.T.to_dict().items()}
+        all_stats[dataset.name] = stats_dict
 
-            # [k for k in stats_df.index if not str(k).startswith("_")]
-            # ]
+        # [k for k in stats_df.index if not str(k).startswith("_")]
+        # ]
         mean_stats = pd.DataFrame(all_stats).T.mean()
         trainer.logger.experiment.log(
             {

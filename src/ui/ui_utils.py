@@ -77,12 +77,13 @@ def get_run_dir(entity: str, project: str, run_id: str) -> Path:
     only_checkpoint: bool = sidebar.checkbox(
         label="Download only the checkpoint?", value=True
     )
-    if sidebar.button(label="Download"):
+    # if sidebar.button(label="Download"):
+    if True:
         run_dir: Path = WANDB_DIR / f"restored-{timestamp}-{run.id}" / "files"
         files = [
             file
             for file in run.files()
-            if "checkpoint" in file.name or not only_checkpoint
+            if "checkpoint" in file.name or "yaml" in file.name or not only_checkpoint
         ]
         if len(files) == 0:
             st.error(

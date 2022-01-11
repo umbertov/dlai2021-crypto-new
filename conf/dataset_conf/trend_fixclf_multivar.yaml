@@ -5,7 +5,7 @@ dataset_reader:
   _target_: src.dataset_readers.goodfeatures_reader
   resample: 5min
   trend_period: 20
-  alpha: 0.02
+  alpha: 0.015
   zscore_periods: [10,30,50,100,200]
 
 input_columns:
@@ -16,14 +16,16 @@ input_columns:
   - Zscore200(Close)
   - Zscore10(Volume)
   - Zscore30(Volume)
-  - Zscore10(Log(PctChange(Close)))
+  - Zscore50(Log(PctChange(Close)))
+  - Zscore200(Log(PctChange(Close)))
+
 continuous_targets: null
 categorical_targets:
   - TargetCategorical
 n_classes: 3
 train_period:
   start: 2017-01-01
-  end: 2021-10-01
+  end: 2020-10-01
 val_period:
   start: ${dataset_conf.train_period.end}
   end: 2021-12-01

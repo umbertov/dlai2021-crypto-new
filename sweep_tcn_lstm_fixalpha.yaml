@@ -1,0 +1,80 @@
+method: bayes
+metric:
+  name: val/f1
+  goal: maximize
+
+
+program: src/run.py
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}
+
+parameters:
+  experiment:
+    values:
+      - tcn_lstm_tagger
+
+  train.early_stopping.patience:
+    distribution: constant
+    value: 20
+
+  train.pl_trainer.max_epochs:
+    distribution: constant
+    value: 80
+
+  train.pl_trainer.gradient_clip_val:
+    distribution: categorical
+    values: [ 0.5, 1.0]
+
+  data.datamodule.batch_size.train:
+    distribution: categorical
+    values: [64,128]
+
+  optim.optimizer.lr:
+    distribution: categorical
+    values: [0.01, 0.001, 0.0001]
+
+
+  model.classification_loss_fn.minimum_weight:
+    distribution: categorical
+    values: [0.1, 0.2]
+
+  dataset_conf:
+    distribution: constant
+    value: trend_fixclf_multivar
+
+  dataset_conf/data_path:
+    distribution: constant
+    value: ccxt_all
+
+  dataset_conf.dataset_reader.trend_period:
+    distribution: categorical
+    values: [20]
+
+  dataset_conf.dataset_reader.alpha:
+    distribution: categorical
+    values: [0.02]
+
+  dataset_conf.zscore_scale_windows:
+    distribution: categorical
+    values: [False]
+
+  dataset_conf.window_length:
+    distribution: constant
+    value: 128
+
+  model.dropout:
+    distribution: categorical
+    values: [0.2]
+
+  model.model.feature_extractor.tcn.kernel_size:
+    distribution: categorical
+    values: [2,4]
+
+  model.model.feature_extractor.lstm.hidden_size: 
+    distribution: categorical
+    values: [128]
+

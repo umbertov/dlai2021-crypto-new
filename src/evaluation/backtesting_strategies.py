@@ -15,6 +15,7 @@ from abc import ABCMeta, abstractmethod
 
 
 class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
+    name = "no_name"
     go_long: bool = True
     go_short: bool = True
     price_delta_pct: Optional[float] = None
@@ -79,8 +80,6 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
             if is_open:
                 position_duration = len(self.data) - last_trade.entry_bar
         if prediction == 1:
-            # if self.position.is_short:
-            #     self.position.close()
             if self.go_long and not self.position:
                 if self.trailing_mul:
                     self.buy(size=self.position_size_pct)
@@ -88,8 +87,6 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
                     sl, tp = self._long_sl_tp_prices(price)
                     self.buy(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
         elif prediction == -1:
-            if self.position.is_long:
-                self.position.close()
             if self.go_short and not self.position:
                 if self.trailing_mul:
                     self.sell(size=self.position_size_pct)
@@ -117,6 +114,7 @@ class SequenceTaggerStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
     class2idx = {0: "sell", 1: "hold", 2: "buy"}
     prediction_threshold = 0.7
+    verbose = True
 
     @torch.no_grad()
     def get_volatility(self):
@@ -143,43 +141,48 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         feature_dataframe = self.data.df[input_columns]
 
         print("beginning to compute model predictions")
-        with tqdm(
-            total=(len(feature_dataframe) - 2 * input_length) // (input_length // 2)
-        ) as pbar:
-            for candle_idx in range(
-                input_length + 1,
-                len(feature_dataframe) - input_length,
-                input_length // 2,
-            ):
-                input_dataframe = feature_dataframe.iloc[
-                    (candle_idx - input_length) : candle_idx
-                ]
-                input_tensor = (
-                    torch.tensor(input_dataframe.values, device=device)
-                    .view(1, input_length, -1)  #### CHANNELS LAST
-                    .float()
-                )
-                ### THIS BLOCK UNTESTED
-                if self.cfg.dataset_conf.zscore_scale_windows == "by_open":
-                    open_col = input_tensor[..., 0]
-                    mean, std = open_col.mean(), open_col.std()
-                    input_tensor = (input_tensor - mean) / std
-                if not channels_last:
-                    input_tensor = rearrange(input_tensor, "b s c -> b c s")
-                # class_indices :: [Batch, SeqLen]
-                class_indices = model.predict(
-                    input_tensor, threshold=self.prediction_threshold
-                )
-                for i, class_idx in enumerate(class_indices[0, input_length // 2 :]):
-                    prediction_step = candle_idx - i
-                    class_idx = class_idx.item()
-                    class_name = self.class2idx[class_idx]
-                    if class_name == "buy":
-                        model_output[prediction_step] = 1
-                    elif class_name == "sell":
-                        model_output[prediction_step] = -1
+        pbar = None
+        if self.verbose:
+            pbar = tqdm(
+                total=(len(feature_dataframe) - 2 * input_length) // (input_length // 2)
+            )
+        for candle_idx in range(
+            input_length + 1,
+            len(feature_dataframe) - input_length,
+            input_length // 2,
+        ):
+            input_dataframe = feature_dataframe.iloc[
+                (candle_idx - input_length) : candle_idx
+            ]
+            input_tensor = (
+                torch.tensor(input_dataframe.values, device=device)
+                .view(1, input_length, -1)  #### CHANNELS LAST
+                .float()
+            )
+            ### THIS BLOCK UNTESTED
+            if self.cfg.dataset_conf.zscore_scale_windows == "by_open":
+                open_col = input_tensor[..., 0]
+                mean, std = open_col.mean(), open_col.std()
+                input_tensor = (input_tensor - mean) / std
+            if not channels_last:
+                input_tensor = rearrange(input_tensor, "b s c -> b c s")
+            # class_indices :: [Batch, SeqLen]
+            class_indices = model.predict(
+                input_tensor, threshold=self.prediction_threshold
+            )
+            for i, class_idx in enumerate(class_indices[0, input_length // 2 :]):
+                prediction_step = candle_idx - i
+                class_idx = class_idx.item()
+                class_name = self.class2idx[class_idx]
+                if class_name == "buy":
+                    model_output[prediction_step] = 1
+                elif class_name == "sell":
+                    model_output[prediction_step] = -1
 
+            if pbar:
                 pbar.update()
+        if pbar:
+            pbar.close()
 
         return model_output
 

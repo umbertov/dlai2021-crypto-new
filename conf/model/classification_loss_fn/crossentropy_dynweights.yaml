@@ -1,6 +1,6 @@
 _target_: src.dyn_loss.DynamicWeightCrossEntropy
 n_classes: ${dataset_conf.n_classes}
 decay: 0.9
-minimum_weight: 0.1
+minimum_weight: 0.2
 label_smoothing: 0.0
 

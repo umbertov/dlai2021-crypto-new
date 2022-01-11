@@ -10,10 +10,10 @@ defaults:
 
 model:
   model:
-    num_channels: [32,64,128,256]
+    num_channels: [32,32,64,128]
     dilated_conv: True
-    kernel_size: 3
-    clf_hidden_sizes: [128,64]
+    kernel_size: 2
+    clf_hidden_sizes: [128,128]
 
 dataset_conf:
   channels_last: False

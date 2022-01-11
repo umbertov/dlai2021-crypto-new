@@ -12,11 +12,12 @@ model:
     feature_extractor:
       lstm:
         hidden_size: 128
+        num_layers: 2
       mlp:
-        hidden_sizes: [128,50]
+        hidden_sizes: [128]
   classification_loss:
     decay: 0.9
-    minimum_weight: 0.1
+    minimum_weight: 0.2
 
 dataset_conf:
   channels_last: True

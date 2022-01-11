@@ -16,8 +16,8 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import WandbLogger
 
-from src.common.utils import log_hyperparameters, PROJECT_ROOT
-from src.common.callbacks import ShuffleDatasetIndices
+from src.common.utils import get_env, log_hyperparameters, PROJECT_ROOT
+from src.common.callbacks import BacktestCallback, ShuffleDatasetIndices
 
 
 def build_callbacks(cfg: DictConfig) -> List[Callback]:
@@ -76,6 +76,8 @@ def build_callbacks(cfg: DictConfig) -> List[Callback]:
     callbacks.append(pl.callbacks.RichModelSummary(max_depth=2))
 
     callbacks.append(ShuffleDatasetIndices())
+
+    callbacks.append(BacktestCallback(cfg))
 
     return callbacks
 
@@ -189,11 +191,12 @@ def run(cfg: DictConfig) -> None:
         wandb_logger.save()
 
 
-@hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="38fqrjbw")
-def main(cfg: omegaconf.DictConfig):
-    print(OmegaConf.to_yaml(cfg))
-    run(cfg)
-
-
 if __name__ == "__main__":
+    config_name = get_env("CONFIG_NAME", "default")
+
+    @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name=config_name)
+    def main(cfg: omegaconf.DictConfig):
+        print(OmegaConf.to_yaml(cfg))
+        run(cfg)
+
     main()
