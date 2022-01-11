@@ -70,10 +70,10 @@ def get_model(cfg):
     return model
 
 
-def get_datamodule(cfg):
+def get_datamodule(cfg, stage=None):
     hydra.utils.log.info(f"Instantiating <{cfg.data.datamodule._target_}>")
     datamodule = hydra.utils.instantiate(cfg.data.datamodule, _recursive_=False)
-    datamodule.setup()
+    datamodule.setup(stage)
     return datamodule
 
 
@@ -221,18 +221,20 @@ assert (
 os.chdir(PROJECT_ROOT)
 
 
-def compute_classification_metrics(preds, targets, num_classes):
+def compute_classification_metrics(preds, targets, num_classes, **kwargs):
     return {
         "metrics/accuracy": M.accuracy(
-            preds, targets, num_classes=num_classes, average="none"
+            preds, targets, num_classes=num_classes, average="none", **kwargs
         ),
         "metrics/precision": M.precision(
-            preds, targets, num_classes=num_classes, average="none"
+            preds, targets, num_classes=num_classes, average="none", **kwargs
         ),
         "metrics/recall": M.recall(
-            preds, targets, num_classes=num_classes, average="none"
+            preds, targets, num_classes=num_classes, average="none", **kwargs
         ),
-        "metrics/f1": M.f1(preds, targets, num_classes=num_classes, average="none"),
+        "metrics/f1": M.f1(
+            preds, targets, num_classes=num_classes, average="none", **kwargs
+        ),
     }
 
 

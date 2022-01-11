@@ -12,7 +12,6 @@ LIMITS = {
     "binance": 1000,
 }
 
-START_DATE, END_DATE = datetime(2017, 1, 1), datetime(2021, 12, 1)
 TIMEFRAME = "5m"
 
 
@@ -139,12 +138,25 @@ def download_symbols(symbols: list[str], **kwargs) -> list[SymbolData]:
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
+    import datetime
 
     parser = ArgumentParser()
     parser.add_argument("--symbol", default="BTC-PERP")
     parser.add_argument("--destdir", default=".", type=str)
     parser.add_argument("--exchange", default="ftx", type=str)
+    parser.add_argument(
+        "--start-date",
+        type=lambda s: datetime.datetime.strptime(s, "%Y-%m-%d"),
+        default="2017-01-01",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=lambda s: datetime.datetime.strptime(s, "%Y-%m-%d"),
+        default="2021-12-01",
+    )
     args = parser.parse_args()
+
+    START_DATE, END_DATE = args.start_date, args.end_date
 
     SYMBOL = args.symbol
     DESTDIR = Path(args.destdir)

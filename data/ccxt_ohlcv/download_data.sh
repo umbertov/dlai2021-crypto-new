@@ -1,5 +1,8 @@
 #!/bin/sh
 
+START_DATE="2017-01-01"
+END_DATE="2022-01-10"
+
 # # ftx data
 # for SYMBOL in "BTC-PERP" "BTC/USD" "ETH-PERP" "ETH/USD" "ADA-PERP" "ADA/USD"; do
 #     echo downloading "$SYMBOL"...
@@ -7,10 +10,10 @@
 # done
 
 # binance data
-for STABLE in "BUSD"; do
-    for SYMBOL in "BTC" "ETH" "BNB" "AAVE" "ATOM" "ADA" "DOGE" "SOL" "AVAX" "LUNA" "DOT"; do
+for STABLE in "BUSD" "USDT"; do
+    for SYMBOL in "BTC" "ETH" ; do
         PAIR="${SYMBOL}/${STABLE}"
         echo downloading "$PAIR"...
-        python -- ccxt_downloader.py --symbol="$PAIR" --exchange=binance
+        python -- ccxt_downloader.py --symbol="$PAIR" --exchange=binance --start-date "$START_DATE" --end-date "$END_DATE"
     done
 done

@@ -24,6 +24,7 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
     cfg: "omegaconf.DictConfig"
     model: torch.nn.Module = None
     trailing_mul: Optional[int] = None
+    close_on_signal: bool = False
 
     def init(self):
         super().init()
@@ -80,6 +81,8 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
             if is_open:
                 position_duration = len(self.data) - last_trade.entry_bar
         if prediction == 1:
+            if self.close_on_signal and self.position.is_short:
+                self.position.close()
             if self.go_long and not self.position:
                 if self.trailing_mul:
                     self.buy(size=self.position_size_pct)
@@ -87,12 +90,16 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
                     sl, tp = self._long_sl_tp_prices(price)
                     self.buy(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
         elif prediction == -1:
+            if self.close_on_signal and self.position.is_long:
+                self.position.close()
             if self.go_short and not self.position:
                 if self.trailing_mul:
                     self.sell(size=self.position_size_pct)
                 else:
                     sl, tp = self._short_sl_tp_prices(price)
                     self.sell(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
+        if self.position.pl_pct > 0.01:
+            self.position.close(0.5)
         if position_duration > 2 * self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
 

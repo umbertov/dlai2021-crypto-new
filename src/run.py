@@ -182,8 +182,8 @@ def run(cfg: DictConfig) -> None:
         wandb_logger.experiment.finish()
         pass
 
-    # hydra.utils.log.info(f"Starting testing!")
-    # trainer.test(model=model, datamodule=datamodule)
+    hydra.utils.log.info(f"Starting testing!")
+    trainer.test(model=model, datamodule=datamodule)
 
     # Logger closing to release resources/avoid multi-run conflicts
     if wandb_logger is not None:

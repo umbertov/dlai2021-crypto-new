@@ -63,7 +63,7 @@ class MyDataModule(pl.LightningDataModule):
 
         if self.datasets.test is not None and (stage is None or stage == "test"):
             self.test_datasets = [
-                hydra.utils.instantiate(dataset_cfg)
+                hydra.utils.instantiate(dataset_cfg, _recursive_=False)
                 for dataset_cfg in self.datasets.test
             ]
 

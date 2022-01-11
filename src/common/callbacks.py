@@ -41,6 +41,25 @@ BACKTEST_METRICS = [
 ]
 
 
+def backtest_model(
+    dataframe,
+    model,
+    cfg,
+    strategy,
+    **strategy_kwargs,
+):
+
+    backtest = Backtest(
+        dataframe,
+        strategy,
+        cash=100_000,
+        commission=0.002,
+        # exclusive_orders=True,
+    )
+    stats = backtest.run(model=model.cuda(), cfg=cfg, **strategy_kwargs)
+    return backtest, stats
+
+
 class BacktestCallback(pl.Callback):
     def __init__(self, cfg: DictConfig, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -57,19 +76,22 @@ class BacktestCallback(pl.Callback):
         all_stats = {}
         dataset = datasets[0]
         dataframe = dataset.dataframe
-        bt = Backtest(
-            dataframe,
-            SequenceTaggerStrategy,
-            cash=1_000_000,
-            commission=0.002,
-            # exclusive_orders=True,
-        )
-        stats = bt.run(
+        # bt = Backtest(
+        #     dataframe,
+        #     SequenceTaggerStrategy,
+        #     cash=100_000,
+        #     commission=0.002,
+        #     # exclusive_orders=True,
+        # )
+        # stats = bt.run(
+        bt, stats = backtest_model(
+            dataframe=dataframe,
+            strategy=SequenceTaggerStrategy,
             model=pl_module,
             cfg=self.cfg,
             go_short=False,
             go_long=True,
-            position_size_pct=0.5,
+            position_size_pct=1,
             price_delta_pct=self.price_delta_pct,
             volatility_std_mult=self.volatility_std_mult,
             trailing_mul=None,

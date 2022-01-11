@@ -91,6 +91,9 @@ class BaseTimeSeriesModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         return self.step(batch, batch_idx, mode="val")
 
+    def test_step(self, batch, batch_idx):
+        return self.step(batch, batch_idx, mode="test")
+
     def configure_optimizers(
         self,
     ) -> Union[Optimizer, Tuple[Sequence[Optimizer], Sequence[Any]]]:
@@ -132,6 +135,12 @@ class BaseTimeSeriesModule(pl.LightningModule):
         random_step = random.choice(step_outputs)
         self._regression_epoch_end(random_step, mode="val")
         self._reconstruction_epoch_end(random_step, mode="val")
+
+    def test_epoch_end(self, step_outputs):
+        self._classifier_epoch_end(step_outputs, mode="test")
+        random_step = random.choice(step_outputs)
+        self._regression_epoch_end(random_step, mode="test")
+        self._reconstruction_epoch_end(random_step, mode="test")
 
     #### EPOCH ENDS
     def _regression_epoch_end(self, step_outputs, mode: str):

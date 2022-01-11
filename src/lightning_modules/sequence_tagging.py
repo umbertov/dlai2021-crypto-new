@@ -54,6 +54,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             {
                 "train_mode": metrics(),
                 "val_mode": metrics(),
+                "test_mode": metrics(),
             }
         )
 
@@ -114,15 +115,6 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             self.logger.experiment.log(
                 {f"{mode}/confusion_matrix": confusion_matrix_plot}
             )
-            # if isinstance(self.logger, pl.loggers.WandbLogger):
-            #     chunks_f1 = self._compute_f1_by_position(step_outputs, 4)
-            #     chunks_f1["epoch"] = self.trainer.current_epoch
-            #     self.logger.log_table(
-            #         f"{mode}/f1_by_pos",
-            #         dataframe=pd.DataFrame(
-            #             chunks_f1, index=[self.trainer.current_epoch]
-            #         ),
-            #     )
             # categorical_plot = self._categorical_data_plot(step_outputs)
             # self.logger.experiment.log(
             #     {f"{mode}/categorical_data_plot": categorical_plot}
