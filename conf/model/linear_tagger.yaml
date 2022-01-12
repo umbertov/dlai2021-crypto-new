@@ -2,7 +2,7 @@ defaults:
   - classification_loss_fn: crossentropy_dynweights.yaml
 
 _target_: src.lightning_modules.TimeSeriesClassifier
-name: tcn_seqtagger
+name: linear_model
 model:
   _target_: src.models.Classifier
   feature_extractor:  

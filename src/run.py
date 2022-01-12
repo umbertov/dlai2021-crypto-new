@@ -179,11 +179,19 @@ def run(cfg: DictConfig) -> None:
         hydra.utils.log.info(f"Starting training!")
         trainer.fit(model=model, datamodule=datamodule)
     except KeyboardInterrupt:
-        wandb_logger.experiment.finish()
+        hydra.utils.log.info("trainer.fit() interrupted")
         pass
 
-    hydra.utils.log.info(f"Starting testing!")
-    trainer.test(model=model, datamodule=datamodule)
+    try:
+        hydra.utils.log.info(f"Starting testing with LAST model!")
+        testresult_last = trainer.test(model=model, datamodule=datamodule)
+        print(testresult_last)
+        hydra.utils.log.info(f"Starting testing with BEST model!")
+        testresult_best = trainer.test(datamodule=datamodule, ckpt_path="best")
+        print(testresult_best)
+    except KeyboardInterrupt:
+        wandb_logger.experiment.finish()
+        pass
 
     # Logger closing to release resources/avoid multi-run conflicts
     if wandb_logger is not None:

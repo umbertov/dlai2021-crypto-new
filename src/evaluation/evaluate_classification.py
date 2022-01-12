@@ -86,8 +86,27 @@ if __name__ == "__main__":
     run_dir: Path = get_run_dir(entity=ENTITY, project=PROJECT, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))
 
+    if len(checkpoint_paths) > 0:
+        print("Multiple checkpoints:")
+        print(
+            "\n".join(
+                [f" - [{i}] {path.name}" for i, path in enumerate(checkpoint_paths)]
+            )
+        )
+        try:
+            checkpoint_index = int(input("Chose one... (default=0) "))
+        except:
+            checkpoint_index = 0
+    else:
+        checkpoint_index = 0
+
+    checkpoint_path: Path = checkpoint_paths[checkpoint_index]
+    print("using checkpoint", checkpoint_path.name)
+
     # Get Hydra cfg and load checkpoint from specific wandb run
-    cfg, model = get_cfg_model(checkpoint_path=checkpoint_paths[0], run_dir=run_dir)
+    cfg, model = get_cfg_model(
+        checkpoint_path=checkpoint_paths[checkpoint_index], run_dir=run_dir
+    )
     # Optionally specify alternative data path
     if args.data_path is not None:
         cfg.dataset_conf.data_path.data_path = f"{DATA_ROOT}/{args.data_path}"

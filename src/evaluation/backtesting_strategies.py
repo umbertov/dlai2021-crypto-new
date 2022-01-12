@@ -98,8 +98,6 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
                 else:
                     sl, tp = self._short_sl_tp_prices(price)
                     self.sell(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
-        if self.position.pl_pct > 0.01:
-            self.position.close(0.5)
         if position_duration > 2 * self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
 

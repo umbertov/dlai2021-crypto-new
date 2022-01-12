@@ -32,11 +32,13 @@ def parse_args():
     parser.add_argument(
         "--price-path", default="${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/BTC-USDT*.csv"
     )
-    parser.add_argument("--backtest-length-pct", default=None, type=float)
-    parser.add_argument("--backtest-start-pct", default=None, type=float)
+    parser.add_argument("--backtest-length-pct", default=1.0, type=float)
+    parser.add_argument("--backtest-start-pct", default=0.0, type=float)
     parser.add_argument("--position-size-pct", default=0.5, type=float)
     args = parser.parse_args()
     assert args.use_split in ("train", "val", "test")
+    assert 0.0 <= args.backtest_start_pct <= 1.0
+    assert 0.0 < args.backtest_length_pct <= 1.0
     if args.position_size_pct == 1:
         args.position_size_pct = int(args.position_size_pct)
     return args
@@ -71,16 +73,11 @@ if __name__ == "__main__":
     full_dataframe = dataset.datasets[0].dataframe
 
     # Backtest parameters
-    backtest_start = 0
-    backtest_length = 5_000
     position_size = args.position_size_pct
     price_delta_pct = None
-    if args.backtest_start_pct is not None:
-        assert 0.0 <= args.backtest_start_pct <= 1.0
-        backtest_start = int(len(full_dataframe) * args.backtest_start_pct)
-    if args.backtest_length_pct is not None:
-        assert 0.0 < args.backtest_length_pct <= 1.0
-        backtest_length = int(len(full_dataframe) * args.backtest_length_pct)
+    # turn backtest start/length from percentages into integer number of steps
+    backtest_start = int(len(full_dataframe) * args.backtest_start_pct)
+    backtest_length = int(len(full_dataframe) * args.backtest_length_pct)
 
     def backtest_model(
         strategy,
