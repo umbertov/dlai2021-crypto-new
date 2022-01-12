@@ -26,6 +26,7 @@ def parse_args():
     global PROJECT, RUN_ID
     parser = ArgumentParser()
     parser.add_argument("--use-split", default="test")
+    parser.add_argument("--select-checkpoint", default=False, action="store_true")
     parser.add_argument("--data-path", default=None, type=str)
     parser.add_argument("--run-id", default=RUN_ID, type=str)
     parser.add_argument("--project", default=PROJECT, type=str)
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     run_dir: Path = get_run_dir(entity=ENTITY, project=PROJECT, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))
 
-    if len(checkpoint_paths) > 0:
+    if len(checkpoint_paths) > 0 and args.select_checkpoint:
         print("Multiple checkpoints:")
         print(
             "\n".join(
@@ -133,14 +134,30 @@ if __name__ == "__main__":
     global_metrics = compute_metrics_on_dataset(dataset, model)
 
     metrics = {"ALL": global_metrics}
-    # for ticker, dataset in tickers2datasets.items():
-    #     metrics[ticker] = compute_metrics_on_dataset(dataset, model)
+    for ticker, dataset in tickers2datasets.items():
+        metrics[ticker] = compute_metrics_on_dataset(dataset, model)
+
+    metrics = {
+        K: {
+            k.split("/")[1]: v.mean().item()
+            for k, v in metrics[K].items()
+            # if not "masked" in k
+        }
+        for K in metrics
+    }
+
+    import pandas as pd
+
+    metrics_df = pd.DataFrame(metrics)
+    csv_filename = f"evaluation/{RUN_ID}.{args.use_split}.csv"
+    print("saving to", csv_filename)
+    metrics_df.to_csv(csv_filename, index_label="metric")
 
     for dataset_name in metrics:
         print("[ ", dataset_name[:8], "]")
         print(
             *[
-                f'  - {name.split("/")[1]}: {val}'
+                f"  - {name}: {val*100:.1f}%"
                 for name, val in metrics[dataset_name].items()
             ],
             sep="\n",
