@@ -1,5 +1,5 @@
 defaults:
-  - data_path: btc_ccxt.yaml
+  - data_path: high_volume.yaml
 
 dataset_reader:
   _target_: src.dataset_readers.goodfeatures_reader

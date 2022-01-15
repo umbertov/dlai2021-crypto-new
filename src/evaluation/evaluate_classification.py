@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--data-path", default=None, type=str)
     parser.add_argument("--run-id", default=RUN_ID, type=str)
     parser.add_argument("--project", default=PROJECT, type=str)
+    parser.add_argument("--entity", default=ENTITY, type=str)
     parser.add_argument("--backtest-length-pct", default=None, type=float)
     parser.add_argument("--backtest-start-pct", default=None, type=float)
     args = parser.parse_args()
@@ -82,7 +83,7 @@ DATA_ROOT = "${oc.env:PROJECT_ROOT}/data"
 if __name__ == "__main__":
 
     args = parse_args()
-    PROJECT, RUN_ID = args.project, args.run_id
+    PROJECT, RUN_ID, ENTITY = args.project, args.run_id, args.entity
 
     run_dir: Path = get_run_dir(entity=ENTITY, project=PROJECT, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))

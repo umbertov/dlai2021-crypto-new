@@ -128,30 +128,3 @@ st.pyplot(
 
 model_out = model(**batch)
 st.write(model_out.keys())
-
-
-def backtest_model_on_dataframe(cfg, dataframe, model):
-    from backtesting import Backtest
-    from src.evaluation.backtesting_strategies import SequenceTaggerStrategy
-    from src.common.callbacks import BACKTEST_METRICS
-    import pandas as pd
-
-    bt = Backtest(
-        dataframe,
-        SequenceTaggerStrategy,
-        cash=1000,
-        commission=0.002,
-        exclusive_orders=True,
-    )
-    stats = bt.run(
-        model=model,
-        cfg=cfg,
-        go_short=True,
-        go_long=True,
-    )
-    stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]
-    # stats_dict = {k: v[0] for k, v in stats_df.T.to_dict().items()}
-    return stats_df
-
-
-backtest_model_on_dataframe(cfg, full_dataframe.iloc[2000:5000], model)

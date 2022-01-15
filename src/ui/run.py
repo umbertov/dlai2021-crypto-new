@@ -92,23 +92,23 @@ full_dataframe_minmax_scaled = (full_dataframe - full_dataframe.Open.min()) / (
 st.header(f"Minmax Scaled version")
 st.write(plot_ohlcv(full_dataframe_minmax_scaled.iloc[indices]))
 
-ZSCORE_PERIOD = sidebar.slider("zscore period", min_value=0, max_value=500, value=20)
+ZSCORE_PERIOD = sidebar.slider(
+    "zscore period", min_value=0, max_value=500, value=20, step=5
+)
 mean = full_dataframe.Open.rolling(ZSCORE_PERIOD).mean()
 std = full_dataframe.Open.rolling(ZSCORE_PERIOD).std() * 2
 full_dataframe_zscore_scaled = full_dataframe.sub(mean, axis=0).div(std, axis=0)
 st.header(f"Zscore Scaled version")
+st.write(
+    "For a long enough z-score period, the graph below will look the same as the original one. "
+    "(Use the slider on the sidebar to make it longer)"
+)
 st.write(plot_ohlcv(full_dataframe_zscore_scaled.iloc[indices]))
 
 
 model_out = model(input_tensors)
 st.write(model_out.keys())
 
-forecast = model.model.forecast(input_tensors[:, :-10], 10)
-
-st.header("Prediction vs ground truth:")
-st.write(targets[0].shape, model_out["regression_output"].shape)
-st.write(model._regression_plot_fig(model_out["regression_output"], targets[0]))
-st.write(model._regression_plot_fig(forecast, targets[0]))
 # st.write(
 #     go.Figure(
 #         data=plot_multi_lines(

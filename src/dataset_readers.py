@@ -116,9 +116,7 @@ RollingMin = ColumnOp(lambda col, window: col.rolling(window).min())
 RollingMax = ColumnOp(lambda col, window: col.rolling(window).min())
 Bins = ColumnOp(lambda col, bins: pd.cut(col, bins), name="Bins")
 BinCodes = ColumnOp(lambda col: col.values.codes, name="BinCodes")
-
 Strip = DfOp(remove_leading_trailing_nans)
-
 RSI = ColumnOp(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
 
 

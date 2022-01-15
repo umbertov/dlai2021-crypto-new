@@ -9,7 +9,6 @@ defaults:
   - data: default
   - hydra: default
   - logging: default
-  - losses: default
   - model: lstm
   - lr_scheduler: default
   - optim: adam

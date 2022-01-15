@@ -1,7 +1,0 @@
-classification_loss_fn: null
-reconstruction_loss_fn: null
-regression_loss_fn:
-  _target_:
-    src.lightning_modules.TimeDiscountMseLoss
-  alpha: 1.1
-
