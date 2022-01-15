@@ -6,6 +6,7 @@ dataset_reader:
   resample: 5min
   trend_period: 10
   std_mult: 2.0
+  zscore_periods: [10,30,50,100,200]
 
 input_columns:
   - Zscore10(Close)
@@ -23,10 +24,13 @@ categorical_targets:
 n_classes: 3
 train_period:
   start: 2017-01-01
-  end: 2021-10-01
+  end: 2020-01-01
 val_period:
   start: ${dataset_conf.train_period.end}
-  end: 2021-12-01
+  end: 2021-01-01
+test_period:
+  start: ${dataset_conf.val_period.end}
+  end: 2022-01-01
 window_skip: 128
 window_length: 128
 minmax_scale_windows: False

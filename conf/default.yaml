@@ -5,16 +5,16 @@ core:
     - mytag
 
 defaults:
-  - dataset_conf: default
+  - dataset_conf: trend_fixclf_multivar
   - data: default
   - hydra: default
   - logging: default
   - losses: default
-  - model: tcn_classifier
+  - model: lstm
   - lr_scheduler: default
   - optim: adam
   - train: default
   #### KEEP THIS AS THE LAST
-  - experiment: default
+  - experiment: lstm_large
 #    Decomment this parameter to get parallel job running
 #  - hydra/launcher: joblib

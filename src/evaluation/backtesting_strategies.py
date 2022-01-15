@@ -228,6 +228,17 @@ class OptimalSequenceTaggerStrategy(SequenceTaggerStrategy):
         return model_output
 
 
+class BuyAndHold(Strategy):
+    name: str = "BuyAndHold"
+
+    def init(self):
+        super().init()
+
+    def next(self):
+        if not self.position:
+            self.buy(size=0.999999)
+
+
 if __name__ == "__main__":
     from src.common.utils import get_hydra_cfg, get_model, get_datamodule
     from sys import argv

@@ -64,7 +64,9 @@ class BacktestCallback(pl.Callback):
     def __init__(self, cfg: DictConfig, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cfg = cfg
-        self.volatility_std_mult = cfg.dataset_conf.dataset_reader.get("std_mult", None)
+        self.volatility_std_mult = (
+            None  # cfg.dataset_conf.dataset_reader.get("std_mult", None)
+        )
         self.price_delta_pct = cfg.dataset_conf.dataset_reader.get(
             "price_delta_pct", None
         )
