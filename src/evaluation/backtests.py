@@ -123,7 +123,7 @@ if __name__ == "__main__":
     print(f"{price_delta_pct=}")
     print(f"{volatility_std_mult=}")
 
-    ##### BACKTESTING
+    ##### BUY AND HOLD BACKTESTING
     if args.buy_and_hold:
         buy_and_hold_backtest = Backtest(
             full_dataframe.iloc[backtest_start : backtest_start + backtest_length],
@@ -158,8 +158,9 @@ if __name__ == "__main__":
 
         exit(0)
 
-    ## Long-Only Strategy
+    #### MODEL-BASED BACKTESTING
 
+    ## Long-Only Strategy
     long_only_backtest, long_only_stats = backtest_model(
         SequenceTaggerStrategy,
         name=f"{RUN_ID}.{args.use_split}",
@@ -327,31 +328,3 @@ if __name__ == "__main__":
     if args.show_plots:
         ax.figure.show()
     ax.figure.savefig(f"{OUT_DIR}/equities {RUN_ID}.{args.use_split}.png")
-
-    # import bt
-
-    # def specify_cash(cash):
-    #     def f(target):
-    #         target.temp["cash"] = 0.2
-    #         return True
-
-    #     return f
-
-    # # Simulate a portfolio that runs these strats simultaneously + holds btc
-    # s = bt.Strategy(
-    #     "strat portfolio",
-    #     [
-    #         specify_cash(0.2),
-    #         bt.algos.RunIfOutOfBounds(0.2),
-    #         bt.algos.SelectAll(),
-    #         bt.algos.WeighSpecified(
-    #             **{"long": 0.1, "short": 0.1, "longshort": 0.1, "btc": 0.1}
-    #         ),
-    #         bt.algos.Rebalance(),
-    #     ],
-    # )
-    # portfolio_backtest = bt.Backtest(s, data)
-    # print("starting bt backtest...")
-    # portfolio_results = bt.run(portfolio_backtest)
-    # print("done. plotting bt backtest...")
-    # portfolio_results.plot()

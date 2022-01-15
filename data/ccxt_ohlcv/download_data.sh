@@ -5,7 +5,8 @@ END_DATE="2022-01-10"
 
 SYMBOLS=(
     "BTC" "ETH"
-    "BNB" "AAVE" "ATOM" "ADA" "DOGE" "SOL" "AVAX" "LUNA" "DOT"
+    # Uncomment this to use the "ccxt_all" config from conf/dataset_conf/data_path/ccxt_all.yaml
+    #"BNB" "AAVE" "ATOM" "ADA" "DOGE" "SOL" "AVAX" "LUNA" "DOT"
 )
 # # ftx data
 # for SYMBOL in "BTC-PERP" "BTC/USD" "ETH-PERP" "ETH/USD" "ADA-PERP" "ADA/USD"; do
