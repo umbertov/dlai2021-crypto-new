@@ -1,5 +1,19 @@
 # Cryptocurrency trend classification model
 
+This is a rewrite of `https://github.com/umbertov/dlai2021-stonks`.
+
+## Install dependencies
+Preferrably set up a virtual environment beforehand.
+
+The `requirements.txt` file contains only the explicitly installed dependencies, without exact version numbers. 
+
+The output of `pip freeze` is instead saved in `exact_requirements.txt`.
+
+```bash
+pip install -r exact_requirements.txt
+# or, if you want the latest packages:
+pip install -r requirements.txt
+```
 
 ## Data Gathering
 
@@ -73,4 +87,9 @@ Then the DataFrame is used to construct a PyTorch `Dataset` class instance. The 
 - `src/ui/categorical_dataviz.py` visualizes the categorical labels on the dataset, and optionally the predictions of a pretrained model (coming from a w&b run).
 - `src/ui/ui.py` interactively visualizes the effect of running z-score normalization of the data when the lookback period changes.
 - `src/evaluation/` contains evaluation and backtesting code.
+
+
+#### Hydra conf
+
+It is mostly the same as `nn-template`; the additions are primarily in `dataset_conf` and `model`.
 
