@@ -30,6 +30,60 @@ class Classifier(nn.Module):
         return {"classification_logits": self.classifier(features)}
 
 
+class TcnClassifier(nn.Module):
+    """
+    A TCN + a Feed-Forward network
+    """
+
+    def __init__(
+        self,
+        num_inputs,
+        num_classes,
+        sequence_length,
+        num_channels,
+        kernel_size,
+        dropout=0.0,
+        compression=1,
+        channels_last=False,
+        residual=False,
+        clf_hidden_sizes=[20],
+        activation=nn.LeakyReLU(),
+        dilated_conv=True,
+    ):
+        super().__init__()
+        self.num_channels = num_channels
+        self.sequence_length = sequence_length
+        self.num_classes = num_classes
+        self.activation = activation
+        self.channels_last = channels_last
+
+        self.encoder = TcnEncoder(
+            num_inputs=num_inputs,
+            num_channels=num_channels,
+            kernel_size=kernel_size,
+            dropout=dropout,
+            compression=compression,
+            channels_last=channels_last,
+            residual=residual,
+            activation=activation,
+            dilated_conv=dilated_conv,
+        )
+        self.classifier = SimpleFeedForward(
+            in_size=num_channels[-1],
+            hidden_sizes=clf_hidden_sizes,
+            out_size=self.num_classes,
+            dropout=dropout,
+            activation=activation,
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        if not self.channels_last:
+            encoded = encoded.transpose(-1, -2)
+        clf_out = self.classifier(encoded)
+        return {"classification_logits": clf_out}
+
+
 class TcnLstmEncoder(nn.Module):
     def __init__(self, tcn, lstm: LstmModel):
         super().__init__()
@@ -93,57 +147,11 @@ class TcnEncoder(nn.Module):
         return self.tcn(*args, **kwargs)
 
 
-class TcnClassifier(nn.Module):
-    def __init__(
-        self,
-        num_inputs,
-        num_classes,
-        sequence_length,
-        num_channels,
-        kernel_size,
-        dropout=0.0,
-        compression=1,
-        channels_last=False,
-        residual=False,
-        clf_hidden_sizes=[20],
-        activation=nn.LeakyReLU(),
-        dilated_conv=True,
-    ):
-        super().__init__()
-        self.num_channels = num_channels
-        self.sequence_length = sequence_length
-        self.num_classes = num_classes
-        self.activation = activation
-        self.channels_last = channels_last
-
-        self.encoder = TcnEncoder(
-            num_inputs=num_inputs,
-            num_channels=num_channels,
-            kernel_size=kernel_size,
-            dropout=dropout,
-            compression=compression,
-            channels_last=channels_last,
-            residual=residual,
-            activation=activation,
-            dilated_conv=dilated_conv,
-        )
-        self.classifier = SimpleFeedForward(
-            in_size=num_channels[-1],
-            hidden_sizes=clf_hidden_sizes,
-            out_size=self.num_classes,
-            dropout=dropout,
-            activation=activation,
-        )
-
-    def forward(self, x):
-        encoded = self.encoder(x)
-        if not self.channels_last:
-            encoded = encoded.transpose(-1, -2)
-        clf_out = self.classifier(encoded)
-        return {"classification_logits": clf_out}
-
-
 class FullyConvolutionalSequenceTagger(nn.Module):
+    """
+    A fully convolutional sequence tagger
+    """
+
     def __init__(
         self,
         num_inputs,

@@ -19,10 +19,13 @@ class EmptyDataFrame(Exception):
     pass
 
 
-import os
-
-
 def try_read_dataframe(*readers):
+    """
+    Tries to read a file using one of the provided readers.
+    Each reader is a function str -> DataFrame.
+    This function needs to be the first one of a reader fn.
+    """
+
     def reader(path):
         dataframe = None
         for candidate_reader in readers:
@@ -42,6 +45,11 @@ def try_read_dataframe(*readers):
 
 
 def read_binance_klines_dataframe(path: str) -> pd.DataFrame:
+    """
+
+    Reads CSVs coming from https://data.binance.vision/
+    See also https://github.com/binance/binance-public-data
+    """
     dataframe: pd.DataFrame = pd.read_csv(path).iloc[:, [0, 1, 2, 3, 4, 5]]
     dataframe.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
     dataframe.index = pd.to_datetime(dataframe["Date"], utc=True, unit="ms")
@@ -50,6 +58,9 @@ def read_binance_klines_dataframe(path: str) -> pd.DataFrame:
 
 
 def read_yfinance_dataframe(path: str) -> pd.DataFrame:
+    """'
+    Reads CSVs coming from Yahoo! Finance
+    """
     try:
         dataframe: pd.DataFrame = pd.read_csv(path, parse_dates=["Date"])  # type: ignore
     except ValueError:
@@ -62,6 +73,12 @@ def read_yfinance_dataframe(path: str) -> pd.DataFrame:
 
 
 def ColumnOp(function, name=None, **initial_args):
+    """
+    Base building block of the dataset reader system.
+    Takes a function as input, and returns a Transformation.
+    A Transformation is used in composition with other Transformations
+    to declaratively construct a DataFrame by progressively adding columns to it.
+    """
     if name is None:
         name = function.__name__
 
@@ -79,10 +96,20 @@ def ColumnOp(function, name=None, **initial_args):
 
 
 def DfOp(function, **f_kwargs):
+    """
+    Generic way to lift a function which transforms an entire DataFrame to a
+    Transformation.
+    This is used when the wanted operation is not to add a column but rather to
+    apply something to the whole DataFrame.
+    """
     return lambda *args, **kwargs: lambda df: function(df, *args, **f_kwargs, **kwargs)
 
 
 def Compose(*transformations):
+    """
+    Implements composition of Transformations.
+    """
+
     def f(df):
         for i, t in enumerate(transformations):
             df = t(df)
@@ -94,6 +121,9 @@ def Compose(*transformations):
 
 
 def remove_leading_trailing_nans(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Strips a DataFrame from NaN/infinity values at its beginning and end.
+    """
     leading_index = pd.Series([df[col].first_valid_index() for col in df.columns]).max()
     trailing_index = pd.Series([df[col].last_valid_index() for col in df.columns]).min()
     if (
@@ -109,6 +139,7 @@ Log = ColumnOp(np.log, name="Log")
 PctChange = ColumnOp(lambda col: col.pct_change() + 1, name="PctChange")
 Shift = ColumnOp(lambda col: col.shift(-1), name="Shift")
 LogPctChange = lambda col: Compose(PctChange(col), Log(f"PctChange({col})"))
+# currying would have been useful here
 Sma = lambda col, n: ColumnOp(lambda df: df.rolling(n).mean(), name=f"Sma{n}")(col)
 Std = lambda col, n: ColumnOp(lambda df: df.rolling(n).std(), name=f"Std{n}")(col)
 RollingSum = ColumnOp(lambda col, window: col.rolling(window).sum())
@@ -121,6 +152,12 @@ RSI = ColumnOp(lambda df: RSIIndicator(df).rsi().dropna() / 100, name="RSI")
 
 
 def zscore_norm_dataframe(df, period: int, stddev_mult: float = 2.0, by=None):
+    """
+    Computes the rolling z-score of values in a dataframe.
+    If `by` is specified, then mean and std come from the `by` column. This was
+    because when normalizing OHLC data, it makes no sense to normalize each column
+    independently, and it is better to pick just one column for normalization (or their mean)
+    """
     if by is None:
         by_df = df
     else:
@@ -141,6 +178,11 @@ def ZScoreNormalize(
 
 
 def Diff(col1, col2, logarithmic=False):
+    """
+    Computes the difference of two columns.
+    If `logarithmic` is True, their logarithmic rate of change  is computed,
+    as log(1+col1/col2). Why did I not create another function for that? Pure idiocy.
+    """
     target_column = f"({col1} - {col2})"
     if logarithmic:
         target_column = f"Log{target_column}"
@@ -160,6 +202,7 @@ LogDiff = lambda col1, col2: Diff(col1, col2, logarithmic=True)
 
 
 def resample_ohlcv(df: pd.DataFrame, resample_freq: str) -> pd.DataFrame:
+    """The correct way to resample an OHLCV series"""
     return df.resample(resample_freq).agg(  # type: ignore
         {
             "Open": "first",
@@ -181,17 +224,11 @@ DateRangeCut = DfOp(
 )
 
 
-def get_traintest_split_readers(reader, start_date, split_date, end_date):
-    train_reader = Compose(
-        reader, DateRangeCut(start_date=start_date, end_date=split_date)
-    )
-    test_reader = Compose(
-        reader, DateRangeCut(start_date=split_date, end_date=end_date)
-    )
-    return train_reader, test_reader
-
-
 def ResampleThenJoin(resample_freq, continuation, suffix=None):
+    """
+    Resamples to `resample_freq`, computes features from the `continuation` callable,
+    then resamples to the original frequency and joins the features from the original dataframe.
+    """
     suffix = suffix or f"_{resample_freq}"
 
     def apply(df):
@@ -217,6 +254,9 @@ def ResampleThenJoin(resample_freq, continuation, suffix=None):
 
 
 def DebugIfNan():
+    """
+    Launches ipdb if a value is NaN in the dataframe
+    """
     if not DEBUG:
         return lambda x: x
 
@@ -272,6 +312,9 @@ def rolling_sums(windows):
             for window in windows
         ]
     )
+
+
+####### From here on, the dataset readers begin.
 
 
 def features_from_1h(df):

@@ -18,7 +18,13 @@ def minmax_scale_tensor(tensor, low, high):
     return (tensor - low) / (high - low)
 
 
-def get_window_indices(n_elements, window_length, window_skip, future_window_length=0):
+def get_window_indices(
+    n_elements: int, window_length: int, window_skip: int, future_window_length=0
+):
+    """
+    Constructs the list of window indices used to slice input and target tensors in
+    the Dataset class.
+    """
     return [
         range(i, i + window_length)
         for i in range(n_elements - window_length - future_window_length)
@@ -30,6 +36,8 @@ def from_pandas(df: pd.DataFrame) -> torch.Tensor:
 
 
 class MultiTickerDataset(ConcatDataset):
+    """Just the ConcatDataset, but can shuffle window start indices at each epoch"""
+
     def reset(self):
         for ds in self.datasets:
             ds.reset()
@@ -46,14 +54,14 @@ class DataframeDataset(TensorDataset):
     def __init__(
         self,
         dataframe,
-        input_columns,
-        continuous_targets,
-        categorical_targets,
-        name,
-        window_length=1,
-        window_skip=1,
-        future_window_length=0,
-        return_dicts=False,
+        input_columns: list[str],
+        continuous_targets: list[str],
+        categorical_targets: list[str],
+        name: str,
+        window_length=128,
+        window_skip=128,
+        future_window_length=0,  # was used just for regression
+        return_dicts=True,
         minmax_scale_windows=False,
         zscore_scale_windows=False,
         channels_last=True,
