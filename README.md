@@ -24,19 +24,26 @@ bash download_data.sh
 
 ## Training models
 
+Just running
+```bash
+python src/run.py
+```
+is enough to train the LSTM model on Bitcoin and Ethereum 5-minutes data.
+
+The other models in the report can be trained like so:
 ```bash
 python -- src/run.py experiment="<one of lstm_large, tcn_wide_deep or linear_tagger >"
 ```
 
 `conf/default.yaml` and the files in `conf/experiment` are already set up to use the configurations and hyperparams used for the models in the report.
 
-The `conf/experiment` and `conf/model` folders contain various models which were used not only for the final classification task, but also other classification, regression and auto-encoder tasks. 
+The `conf/experiment` and `conf/model` folders contain various models which were used not only for the final classification task, but also other classification, regression and auto-encoder tasks. The non-classification models may not work due to breaking changes introduced after their development stopped (due to no success in the tasks at hand). 
 
-The `conf/dataset_conf` includes many dataset configurations (features, objectives, normalizations, etc).
+The `conf/dataset_conf` includes many dataset configurations (features, objectives, normalizations, etc). The one used finally is `trend_fixclf_multivar.yaml`.
 
 ## Evaluating/Backtesting models
 
-To evaluate a model, you just need its Weights & Biases run id. By default, my project and entity are used, but you can change them with the `--project` and `--entity` command-line switches.
+To evaluate a model, you just need its Weights & Biases run id. By default, my w&b project and entity are used, but you can change them with the `--project` and `--entity` command-line switches.
 
 ```
 # Classification metrics
