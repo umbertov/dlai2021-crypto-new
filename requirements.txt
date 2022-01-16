@@ -19,3 +19,4 @@ streamlit
 tqdm
 stqdm
 ta
+kaleido
