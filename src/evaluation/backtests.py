@@ -39,17 +39,26 @@ BACKTEST_METRICS = [
     "Profit Factor",
     "Win Rate [%]",
 ]
+
 OUT_DIR = "evaluation/backtest"
 
 
 def parse_args():
+    def none_or_float(value):
+        if value == "None":
+            return None
+        return float(value)
+
+    global PROJECT, RUN_ID, ENTITY
     parser = ArgumentParser()
+    parser.add_argument("--out-dir", default=OUT_DIR)
     parser.add_argument("--use-split", default="test")
     parser.add_argument("--close-on-signal", default=False, action="store_true")
     parser.add_argument("--run-id", default=RUN_ID, type=str)
     parser.add_argument("--project", default=PROJECT, type=str)
+    parser.add_argument("--entity", default=ENTITY, type=str)
     parser.add_argument(
-        "--price-path", default="${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/BTC-USDT*.csv"
+        "--data-path", default="${oc.env:PROJECT_ROOT}/data/ccxt_ohlcv/BTC-USDT*.csv"
     )
     parser.add_argument("--backtest-length-pct", default=1.0, type=float)
     parser.add_argument("--backtest-start-pct", default=0.0, type=float)
@@ -58,10 +67,12 @@ def parse_args():
     parser.add_argument("--verbose-stats", default=False, action="store_true")
     parser.add_argument("--optimal", default=False, action="store_true")
     parser.add_argument("--buy-and-hold", default=False, action="store_true")
+    parser.add_argument("--prediction-threshold", default=0.7, type=none_or_float)
     args = parser.parse_args()
     assert args.use_split in ("train", "val", "test")
     assert 0.0 <= args.backtest_start_pct <= 1.0
     assert 0.0 < args.backtest_length_pct <= 1.0
+    assert args.prediction_threshold is None or 0.0 < args.prediction_threshold < 1.0
     if args.position_size_pct == 1:
         args.position_size_pct = int(args.position_size_pct)
     return args
@@ -72,14 +83,16 @@ if __name__ == "__main__":
 
     ##### CLI ARGS
     args = parse_args()
-    PROJECT, RUN_ID = args.project, args.run_id
+    PROJECT, RUN_ID, ENTITY = args.project, args.run_id, args.entity
+    OUT_DIR = args.out_dir
+    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     ##### LOAD HYDRA CFG, MODEL CHECKPOINT FROM WANDB RUN
     run_dir: Path = get_run_dir(entity=ENTITY, project=PROJECT, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))
     cfg, model = get_cfg_model(checkpoint_path=checkpoint_paths[0], run_dir=run_dir)
     # override dataset path
-    cfg.dataset_conf.data_path.data_path = args.price_path
+    cfg.dataset_conf.data_path.data_path = args.data_path
 
     # Load data
     datamodule = get_datamodule(
@@ -158,51 +171,7 @@ if __name__ == "__main__":
 
         exit(0)
 
-    #### MODEL-BASED BACKTESTING
-
-    ## Long-Only Strategy
-    long_only_backtest, long_only_stats = backtest_model(
-        SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=True,
-        go_short=False,
-        close_on_signal=args.close_on_signal,
-        position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
-        volatility_std_mult=volatility_std_mult,
-        trailing_mul=None,
-    )
-    if args.verbose_stats:
-        print("Long only results:\n\n", long_only_stats)
-    ## Short-Only Strategy
-    short_only_backtest, short_only_stats = backtest_model(
-        SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=False,
-        go_short=True,
-        close_on_signal=args.close_on_signal,
-        position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
-        volatility_std_mult=volatility_std_mult,
-        trailing_mul=None,
-    )
-    if args.verbose_stats:
-        print("Short only results:\n\n", short_only_stats)
-    ## Long-Short Strategy
-    up_down_backtest, up_down_stats = backtest_model(
-        SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=True,
-        go_short=True,
-        close_on_signal=args.close_on_signal,
-        position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
-        volatility_std_mult=volatility_std_mult,
-        trailing_mul=None,
-    )
-    if args.verbose_stats:
-        print("Long+Short results\n\n", up_down_stats)
-
+    #### OPTIMAL STRATEGY TESTING
     if args.optimal:
         ## Optimal Long-Only Strategy
         optimal_long_backtest, optimal_long_stats = backtest_model(
@@ -262,6 +231,54 @@ if __name__ == "__main__":
             f"{OUT_DIR}/latex_table.Optimal.{args.use_split}.latex",
             float_format=lambda x: f"{x:0.2f}",
         )
+
+    #### MODEL-BASED BACKTESTING
+
+    ## Long-Only Strategy
+    long_only_backtest, long_only_stats = backtest_model(
+        SequenceTaggerStrategy,
+        name=f"{RUN_ID}.{args.use_split}",
+        go_long=True,
+        go_short=False,
+        close_on_signal=args.close_on_signal,
+        position_size_pct=position_size,
+        price_delta_pct=price_delta_pct,
+        volatility_std_mult=volatility_std_mult,
+        trailing_mul=None,
+        prediction_threshold=args.prediction_threshold,
+    )
+    if args.verbose_stats:
+        print("Long only results:\n\n", long_only_stats)
+    ## Short-Only Strategy
+    short_only_backtest, short_only_stats = backtest_model(
+        SequenceTaggerStrategy,
+        name=f"{RUN_ID}.{args.use_split}",
+        go_long=False,
+        go_short=True,
+        close_on_signal=args.close_on_signal,
+        position_size_pct=position_size,
+        price_delta_pct=price_delta_pct,
+        volatility_std_mult=volatility_std_mult,
+        trailing_mul=None,
+        prediction_threshold=args.prediction_threshold,
+    )
+    if args.verbose_stats:
+        print("Short only results:\n\n", short_only_stats)
+    ## Long-Short Strategy
+    up_down_backtest, up_down_stats = backtest_model(
+        SequenceTaggerStrategy,
+        name=f"{RUN_ID}.{args.use_split}",
+        go_long=True,
+        go_short=True,
+        close_on_signal=args.close_on_signal,
+        position_size_pct=position_size,
+        price_delta_pct=price_delta_pct,
+        volatility_std_mult=volatility_std_mult,
+        trailing_mul=None,
+        prediction_threshold=args.prediction_threshold,
+    )
+    if args.verbose_stats:
+        print("Long+Short results\n\n", up_down_stats)
 
     ##### PLOT ALL PREVIOUS RESULTS
     long_only_backtest.plot(

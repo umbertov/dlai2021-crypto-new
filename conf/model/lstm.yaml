@@ -1,3 +1,6 @@
+defaults:
+  - classification_loss_fn: crossentropy_dynweights.yaml
+
 _target_: src.lightning_modules.TimeSeriesClassifier
 name: lstm
 model:
@@ -22,12 +25,6 @@ model:
       dropout:
         ${model.dropout}
       flatten_input: ${model.flatten_input}
-classification_loss_fn:
-  _target_: src.dyn_loss.DynamicWeightCrossEntropy
-  n_classes: ${dataset_conf.n_classes}
-  decay: 0.8
-  minimum_weight: 0.1
-  label_smoothing: 0.0
 regression_loss_fn:
 reconstruction_loss_fn:
 reconstruction_loss_weight:
@@ -36,3 +33,4 @@ dropout: 0.0
 activation:
   torch.nn.LeakyReLU
 flatten_input: False
+prediction_threshold: null # if none: standard argmax prediction, else use thresh

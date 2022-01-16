@@ -75,6 +75,10 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
         price = self.data.Close[-1]
         prediction = self.model_output[-1]
         position_duration = 0
+        # first, cancel any non-executed order
+        for order in self.orders:
+            order.cancel()
+        # if present, compute length of current trade (in bars)
         if len(self.trades) > 0:
             last_trade = self.trades[-1]
             is_open = last_trade.exit_bar is None
@@ -98,7 +102,7 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
                 else:
                     sl, tp = self._short_sl_tp_prices(price)
                     self.sell(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
-        if position_duration > 2 * self.cfg.dataset_conf.dataset_reader.trend_period:
+        if position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
 
 
@@ -142,6 +146,7 @@ class SequenceTaggerStrategy(ModelStrategyBase):
         input_columns = self.cfg.dataset_conf.input_columns
         input_length = self.cfg.dataset_conf.window_length // 2
         print(f"{input_columns=}, {input_length=}")
+        print(f"{self.prediction_threshold=} ")
 
         feature_dataframe = self.data.df[input_columns]
 
@@ -159,12 +164,12 @@ class SequenceTaggerStrategy(ModelStrategyBase):
             input_dataframe = feature_dataframe.iloc[
                 (candle_idx - input_length) : candle_idx
             ]
+            # input_tensor :: [ Batch, Seq, Chan ]
             input_tensor = (
                 torch.tensor(input_dataframe.values, device=device)
                 .view(1, input_length, -1)  #### CHANNELS LAST
                 .float()
             )
-            ### THIS BLOCK UNTESTED
             if self.cfg.dataset_conf.zscore_scale_windows == "by_open":
                 open_col = input_tensor[..., 0]
                 mean, std = open_col.mean(), open_col.std()

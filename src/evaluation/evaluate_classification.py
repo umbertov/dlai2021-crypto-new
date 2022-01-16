@@ -2,9 +2,11 @@ from argparse import ArgumentParser
 from pathlib import Path
 from omegaconf.dictconfig import DictConfig
 import torch
+from src.common.plot_utils import confusion_matrix_fig
 from src.ui.ui_utils import get_run_dir
 from src.common.utils import (
     compute_classification_metrics,
+    compute_confusion_matrix,
     get_datamodule,
 )
 from src.lightning_modules.sequence_tagging import TimeSeriesClassifier
@@ -50,12 +52,40 @@ def compute_metrics_on_dataset(dataset, model):
         all_targets.view(-1),
         num_classes=cfg.dataset_conf.n_classes,
     )
+    return metrics
+
+
+def confmat_on_dataset(dataset, model):
+    dataset.reset()
+    megabatch = dataloader.collate_fn(list(dataset))
+    megabatch = move_dict(megabatch, "cuda")
+    all_predictions = model.predict(**megabatch).squeeze()
+    all_targets = megabatch["categorical_targets"].squeeze()
+
+    confusion_matrix = (
+        compute_confusion_matrix(
+            all_predictions, all_targets, num_classes=cfg.dataset_conf.n_classes
+        )
+        .cpu()
+        .numpy()
+    )
+    plot = confusion_matrix_fig(
+        confusion_matrix,
+        labels=["down", "neutral", "up"],
+    )
+    return confusion_matrix, plot
+
+
+def compute_masked_metrics_on_dataset(dataset, model):
+    megabatch = dataloader.collate_fn(list(dataset))
+    megabatch = move_dict(megabatch, "cuda")
+    all_predictions = model.predict(**megabatch).squeeze()
+    all_targets = megabatch["categorical_targets"].squeeze()
 
     # Now compute metrics just for {down, up} classes
     mask = all_targets != 1  # ignore the "neutral" class
 
     true_positives = all_predictions == all_targets
-    masked_accuracy = true_positives[mask].sum() / true_positives[mask].numel()
 
     # mask pred and target tensors
     masked_predictions, masked_targets = all_predictions[mask], all_targets[mask]
@@ -75,7 +105,7 @@ def compute_metrics_on_dataset(dataset, model):
     )
     # change the name of metric keys so they don't clash with the others we are returning
     masked_metrics = {f"{k}_masked": v[[0, 1]] for k, v in masked_metrics.items()}
-    return {**metrics, **masked_metrics}
+    return masked_metrics
 
 
 DATA_ROOT = "${oc.env:PROJECT_ROOT}/data"
@@ -135,8 +165,8 @@ if __name__ == "__main__":
     global_metrics = compute_metrics_on_dataset(dataset, model)
 
     metrics = {"ALL": global_metrics}
-    for ticker, dataset in tickers2datasets.items():
-        metrics[ticker] = compute_metrics_on_dataset(dataset, model)
+    for ticker, sub_dataset in tickers2datasets.items():
+        metrics[ticker] = compute_metrics_on_dataset(sub_dataset, model)
 
     metrics = {
         K: {
@@ -164,3 +194,8 @@ if __name__ == "__main__":
             sep="\n",
         )
         print("\n")
+
+    confmat, plotly_fig = confmat_on_dataset(dataset, model)
+    plotly_fig.write_image(
+        f"evaluation/classification_metrics/confmat.{RUN_ID}.{args.use_split}.svg"
+    )
