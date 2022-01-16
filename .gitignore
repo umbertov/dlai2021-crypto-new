@@ -1,3 +1,7 @@
+*.html
+*.png
+*.svg
+evaluation/*
 .cache/*
 wandb/*
 *.pyc
