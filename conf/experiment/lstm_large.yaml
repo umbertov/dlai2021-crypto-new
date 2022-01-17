@@ -15,9 +15,9 @@ model:
         num_layers: 2
       mlp:
         hidden_sizes: [128]
-  classification_loss:
-    decay: 0.9
-    minimum_weight: 0.2
+  classification_loss_fn:
+    decay: 0.8
+    minimum_weight: 0.1
 
 dataset_conf:
   channels_last: True
