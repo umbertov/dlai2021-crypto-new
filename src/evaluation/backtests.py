@@ -32,11 +32,8 @@ torch.set_grad_enabled(False)
 
 BACKTEST_METRICS = [
     "Return [%]",
-    "Buy & Hold Return [%]",
     "Sharpe Ratio",
     "Max. Drawdown [%]",
-    "Avg. Drawdown [%]",
-    "Profit Factor",
     "Win Rate [%]",
 ]
 
@@ -67,7 +64,7 @@ def parse_args():
     parser.add_argument("--verbose-stats", default=False, action="store_true")
     parser.add_argument("--optimal", default=False, action="store_true")
     parser.add_argument("--buy-and-hold", default=False, action="store_true")
-    parser.add_argument("--prediction-threshold", default=0.7, type=none_or_float)
+    parser.add_argument("--prediction-threshold", default=None, type=none_or_float)
     args = parser.parse_args()
     assert args.use_split in ("train", "val", "test")
     assert 0.0 <= args.backtest_start_pct <= 1.0
@@ -334,10 +331,10 @@ if __name__ == "__main__":
     up_down_equity = up_down_stats._equity_curve.Equity
     data = pd.DataFrame(
         {
-            "btc": full_dataframe.Close,
-            "long": long_only_equity,
-            "short": short_only_equity,
-            "longshort": up_down_equity,
+            "btc": full_dataframe.Close.resample("1d").mean(),
+            "long": long_only_equity.resample("1d").mean(),
+            "short": short_only_equity.resample("1d").mean(),
+            "longshort": up_down_equity.resample("1d").mean(),
         }
     ).rebase()
 

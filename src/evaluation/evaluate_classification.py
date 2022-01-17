@@ -196,6 +196,8 @@ if __name__ == "__main__":
         print("\n")
 
     confmat, plotly_fig = confmat_on_dataset(dataset, model)
-    plotly_fig.write_image(
-        f"evaluation/classification_metrics/confmat.{RUN_ID}.{args.use_split}.svg"
+    confmat_path = (
+        f"evaluation/classification_metrics/confmat.{RUN_ID}.{args.use_split}.png"
     )
+    print("saving to", confmat_path)
+    plotly_fig.write_image(confmat_path)
