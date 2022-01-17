@@ -91,6 +91,8 @@ Then the DataFrame is used to construct a PyTorch `Dataset` class instance. The 
 
 #### Misc 
 
+##### Streamlit apps
+
 - `src/ui/categorical_dataviz.py` visualizes the categorical labels on the dataset, and optionally the predictions of a pretrained model (coming from a w&b run).
 - `src/ui/ui.py` interactively visualizes the effect of running z-score normalization of the data when the lookback period changes.
 - `src/evaluation/` contains evaluation and backtesting code.
