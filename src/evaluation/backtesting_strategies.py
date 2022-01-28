@@ -25,9 +25,12 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
     model: torch.nn.Module = None
     trailing_mul: Optional[int] = None
     close_on_signal: bool = False
+    max_entries = 1
 
     def init(self):
         super().init()
+        # Counts how many signal-based entries were made
+        self.entry_count = 0
 
         self.model_output = self.I(self.get_model_output)
         if self.volatility_std_mult is not None:
@@ -55,7 +58,7 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
         elif self.volatility_std_mult is not None:
             tp = price * (1 + self.volatility[-1] * self.volatility_std_mult)
             sl = price * (1 - self.volatility[-1] * self.volatility_std_mult)
-        assert sl or tp is None or sl < price < tp
+        assert (sl or tp is None) or sl < price < tp
         return sl, tp
 
     def _short_sl_tp_prices(self, price):
@@ -68,7 +71,7 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
         elif self.volatility_std_mult is not None:
             sl = price * (1 + self.volatility[-1] * self.volatility_std_mult)
             tp = price * (1 - self.volatility[-1] * self.volatility_std_mult)
-        assert sl or tp is None or sl > price > tp
+        assert (sl or tp is None) or sl > price > tp
         return sl, tp
 
     def next(self):
@@ -78,32 +81,43 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
         # first, cancel any non-executed order
         for order in self.orders:
             order.cancel()
+            self.entry_count = max(0, self.entry_count - 1)
         # if present, compute length of current trade (in bars)
         if len(self.trades) > 0:
             last_trade = self.trades[-1]
             is_open = last_trade.exit_bar is None
             if is_open:
                 position_duration = len(self.data) - last_trade.entry_bar
+            else:
+                self.entry_count = 0
+
+        if position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
+            self.position.close()
+            self.entry_count = 0
+            return
+
         if prediction == 1:
             if self.close_on_signal and self.position.is_short:
                 self.position.close()
-            if self.go_long and not self.position:
+                self.entry_count = 0
+            if self.go_long and self.entry_count < self.max_entries:
                 if self.trailing_mul:
                     self.buy(size=self.position_size_pct)
                 else:
                     sl, tp = self._long_sl_tp_prices(price)
-                    self.buy(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
+                    self.buy(size=self.position_size_pct, tp=tp, sl=sl)
+                self.entry_count += 1
         elif prediction == -1:
             if self.close_on_signal and self.position.is_long:
                 self.position.close()
-            if self.go_short and not self.position:
+                self.entry_count = 0
+            if self.go_short and self.entry_count < self.max_entries:
                 if self.trailing_mul:
                     self.sell(size=self.position_size_pct)
                 else:
                     sl, tp = self._short_sl_tp_prices(price)
-                    self.sell(size=self.position_size_pct, tp=tp, sl=sl, limit=price)
-        if position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
-            self.position.close()
+                    self.sell(size=self.position_size_pct, tp=tp, sl=sl)
+                self.entry_count += 1
 
 
 class Monke(Strategy):
