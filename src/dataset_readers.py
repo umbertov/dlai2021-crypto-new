@@ -860,11 +860,12 @@ def goodtargets(
 
 
 def goodfeatures(
-    zscore_periods=[10, 20, 30, 50, 100, 200, 2000],
+    zscore_periods=[10, 20, 30, 50, 100, 200],
     scaled_columns=["Open", "High", "Low", "Close", "Volume", "Log(PctChange(Close))"],
 ):
     return Compose(
         LogPctChange("Close"),
+        PctChange("Close"),
         *[
             zscore_normalize_columns(scaled_columns, period=period)
             for period in zscore_periods

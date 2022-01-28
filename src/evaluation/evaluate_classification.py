@@ -33,8 +33,6 @@ def parse_args():
     parser.add_argument("--run-id", default=RUN_ID, type=str)
     parser.add_argument("--project", default=PROJECT, type=str)
     parser.add_argument("--entity", default=ENTITY, type=str)
-    parser.add_argument("--backtest-length-pct", default=None, type=float)
-    parser.add_argument("--backtest-start-pct", default=None, type=float)
     args = parser.parse_args()
     assert args.use_split in ("train", "val", "test")
     return args

@@ -15,4 +15,4 @@ wandb_watch:
 
 lr_monitor:
   logging_interval: "epoch"
-  log_momentum: True
+  log_momentum: False

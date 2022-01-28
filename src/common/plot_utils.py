@@ -81,51 +81,52 @@ def confusion_matrix_fig(confusion_matrix, labels):
     # set up figure
     fig = ff.create_annotated_heatmap(
         confusion_matrix,
-        x=[f"{l}_pred" for l in labels],
-        y=[f"{l}_real" for l in labels],
+        x=[f"{l} pred" for l in labels],
+        y=[f"{l} real" for l in labels],
         annotation_text=z_text,
         colorscale="Viridis",
     )
+    return fig
 
     # add title
-    fig.update_layout(
-        title_text="<i><b>Confusion matrix</b></i>",
-        # xaxis = dict(title='x'),
-        # yaxis = dict(title='x')
-    )
+    # fig.update_layout(
+    #     title_text="<i><b>Confusion matrix</b></i>",
+    #     # xaxis = dict(title='x'),
+    #     # yaxis = dict(title='x')
+    # )
 
-    # add custom xaxis title
-    fig.add_annotation(
-        dict(
-            font=dict(color="black", size=14),
-            x=0.5,
-            y=-0.15,
-            showarrow=False,
-            text="Predicted value",
-            xref="paper",
-            yref="paper",
-        )
-    )
+    # # add custom xaxis title
+    # fig.add_annotation(
+    #     dict(
+    #         font=dict(color="black", size=14),
+    #         x=0.5,
+    #         y=-0.15,
+    #         showarrow=False,
+    #         text="Predicted value",
+    #         xref="paper",
+    #         yref="paper",
+    #     )
+    # )
 
-    # add custom yaxis title
-    fig.add_annotation(
-        dict(
-            font=dict(color="black", size=14),
-            x=-0.35,
-            y=0.5,
-            showarrow=False,
-            text="Real value",
-            textangle=-90,
-            xref="paper",
-            yref="paper",
-        )
-    )
+    # # add custom yaxis title
+    # fig.add_annotation(
+    #     dict(
+    #         font=dict(color="black", size=14),
+    #         x=-0.35,
+    #         y=0.5,
+    #         showarrow=False,
+    #         text="Real value",
+    #         textangle=-90,
+    #         xref="paper",
+    #         yref="paper",
+    #     )
+    # )
 
     # adjust margins to make room for yaxis title
-    fig.update_layout(margin=dict(t=50, l=200))
+    # fig.update_layout(margin=dict(t=50, l=200))
 
     # add colorbar
-    fig["data"][0]["showscale"] = True
+    # fig["data"][0]["showscale"] = True
     return fig
 
 

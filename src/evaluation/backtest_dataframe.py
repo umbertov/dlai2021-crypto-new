@@ -1,4 +1,5 @@
 from backtesting.backtesting import Backtest
+import hydra
 import torch
 from pathlib import Path
 from sys import argv, exit
@@ -7,6 +8,8 @@ import ffn, pandas as pd, matplotlib as plt
 import pandas as pd
 
 import matplotlib as mpl
+
+from src.dataset_readers import Compose, DateRangeCut
 
 mpl.rcParams["figure.dpi"] = 200
 
@@ -41,16 +44,29 @@ OUT_DIR = "evaluation/backtest"
 
 
 def parse_args():
-    def none_or_float(value):
-        if value == "None":
-            return None
-        return float(value)
+    def none_or(other):
+        """Argparse validator"""
+
+        def f(x):
+            if x == "None":
+                return None
+            return other(x)
+
+        return f
+
+    # validators declaration
+    none_or_float = none_or(float)
+    none_or_datetime = none_or(lambda x: pd.to_datetime(x).date())
 
     global PROJECT, RUN_ID, ENTITY
     parser = ArgumentParser()
     parser.add_argument("--out-dir", default=OUT_DIR)
-    parser.add_argument("--use-split", default="test")
+    parser.add_argument("--start-date", default=None, type=none_or_datetime)
+    parser.add_argument("--end-date", default=None, type=none_or_datetime)
     parser.add_argument("--close-on-signal", default=False, action="store_true")
+    parser.add_argument("--go-long", default=True, type=bool)
+    parser.add_argument("--go-short", default=True, type=bool)
+    parser.add_argument("--resample", default="1d", type=str)
     parser.add_argument("--run-id", default=RUN_ID, type=str)
     parser.add_argument("--project", default=PROJECT, type=str)
     parser.add_argument("--entity", default=ENTITY, type=str)
@@ -65,8 +81,10 @@ def parse_args():
     parser.add_argument("--optimal", default=False, action="store_true")
     parser.add_argument("--buy-and-hold", default=False, action="store_true")
     parser.add_argument("--prediction-threshold", default=None, type=none_or_float)
+    parser.add_argument("--price-delta-pct", default=None, type=none_or_float)
+    parser.add_argument("--max-entries", default=1, type=int)
+
     args = parser.parse_args()
-    assert args.use_split in ("train", "val", "test")
     assert 0.0 <= args.backtest_start_pct <= 1.0
     assert 0.0 < args.backtest_length_pct <= 1.0
     assert args.prediction_threshold is None or 0.0 < args.prediction_threshold < 1.0
@@ -91,25 +109,17 @@ if __name__ == "__main__":
     # override dataset path
     cfg.dataset_conf.data_path.data_path = args.data_path
 
-    # Load data
-    datamodule = get_datamodule(
-        cfg, "fit" if args.use_split in ("train", "val") else "test"
-    )
-    if args.use_split == "train":
-        dataset = datamodule.train_dataset
-    elif args.use_split == "val":
-        dataset = datamodule.val_datasets[0]
-    elif args.use_split == "test":
-        dataset = datamodule.test_datasets[0]
-    # We'll use the underlying dataframe, not the Dataset instance itself
-    full_dataframe = dataset.datasets[0].dataframe
+    dataset_reader = hydra.utils.instantiate(cfg.dataset_conf.dataset_reader)
+    dataframe: pd.DataFrame = dataset_reader(args.data_path)
+    if args.start_date and args.end_date:
+        dataframe = DateRangeCut(args.start_date, args.end_date)(dataframe)
 
     # Backtest parameters
     position_size = args.position_size_pct
-    price_delta_pct = None
+    price_delta_pct = args.price_delta_pct
     # turn backtest start/length from percentages into integer number of steps
-    backtest_start = int(len(full_dataframe) * args.backtest_start_pct)
-    backtest_length = int(len(full_dataframe) * args.backtest_length_pct)
+    backtest_start = int(len(dataframe) * args.backtest_start_pct)
+    backtest_length = int(len(dataframe) * args.backtest_length_pct)
 
     def backtest_model(
         strategy,
@@ -119,9 +129,9 @@ if __name__ == "__main__":
     ):
 
         backtest = Backtest(
-            full_dataframe.iloc[backtest_start : backtest_start + backtest_length],
+            dataframe.iloc[backtest_start : backtest_start + backtest_length],
             strategy,
-            cash=100_000,
+            cash=100_000 * args.max_entries,
             commission=0.002,
             # exclusive_orders=True,
         )
@@ -129,20 +139,21 @@ if __name__ == "__main__":
         return backtest, stats
 
     volatility_std_mult = None  # cfg.dataset_conf.dataset_reader.get("std_mult", None)
-    price_delta_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
+    if price_delta_pct is None:
+        price_delta_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
     print(f"{price_delta_pct=}")
     print(f"{volatility_std_mult=}")
 
     ##### BUY AND HOLD BACKTESTING
     if args.buy_and_hold:
         buy_and_hold_backtest = Backtest(
-            full_dataframe.iloc[backtest_start : backtest_start + backtest_length],
+            dataframe.iloc[backtest_start : backtest_start + backtest_length],
             BuyAndHold,
             cash=100_000,
             commission=0.002,
         )
         buy_and_hold_stats = buy_and_hold_backtest.run(
-            name=f"BuyAndHold.{RUN_ID}.{args.use_split}",
+            name=f"BuyAndHold.{RUN_ID}.{args.start_date}-{args.end_date}",
         )
         buy_and_hold_s = pd.Series(buy_and_hold_stats).loc[BACKTEST_METRICS]
         global_stats = pd.DataFrame({"Buy and Hold": buy_and_hold_s})
@@ -151,18 +162,18 @@ if __name__ == "__main__":
             results=buy_and_hold_stats,
             plot_return=True,
             plot_equity=False,
-            resample="1d",
+            resample=args.resample,
             open_browser=args.show_plots,
         )
         #### Export it to CSV and print latex table
         global_stats.to_csv(
-            f"{OUT_DIR}/backtest_metrics.BuyAndHold.{args.use_split}.csv"
+            f"{OUT_DIR}/backtest_metrics.BuyAndHold.{args.start_date}-{args.end_date}.csv"
         )
         print("LATEX TABLE:\n")
-        print(f"%%%% Buy & Hold {args.use_split}")
+        print(f"%%%% Buy & Hold {args.start_date}-{args.end_date}")
         print(global_stats.to_latex(float_format=lambda x: f"{x:0.2f}"), "\n\n")
         global_stats.to_latex(
-            f"{OUT_DIR}/latex_table.BuyAndHold.{args.use_split}.latex",
+            f"{OUT_DIR}/latex_table.BuyAndHold.{args.start_date}-{args.end_date}.latex",
             float_format=lambda x: f"{x:0.2f}",
         )
 
@@ -180,6 +191,7 @@ if __name__ == "__main__":
             position_size_pct=position_size,
             price_delta_pct=price_delta_pct,
             volatility_std_mult=volatility_std_mult,
+            max_entries=args.max_entries,
         )
         if args.verbose_stats:
             print("Optimal Long Only strategy results:\n\n", optimal_long_stats)
@@ -193,6 +205,7 @@ if __name__ == "__main__":
             position_size_pct=position_size,
             price_delta_pct=price_delta_pct,
             volatility_std_mult=volatility_std_mult,
+            max_entries=args.max_entries,
         )
         if args.verbose_stats:
             print("Optimal Short Only strategy results:\n\n", optimal_short_stats)
@@ -206,6 +219,7 @@ if __name__ == "__main__":
             position_size_pct=position_size,
             price_delta_pct=price_delta_pct,
             volatility_std_mult=volatility_std_mult,
+            max_entries=args.max_entries,
         )
         if args.verbose_stats:
             print("Optimal Long+Short strategy results:\n\n", optimal_updown_stats)
@@ -220,125 +234,83 @@ if __name__ == "__main__":
             }
         )
         #### Export it to CSV and print latex table
-        global_stats.to_csv(f"{OUT_DIR}/backtest_metrics.Optimal.{args.use_split}.csv")
+        global_stats.to_csv(
+            f"{OUT_DIR}/backtest_metrics.Optimal.{args.start_date}-{args.end_date}.csv"
+        )
         print("LATEX TABLE:\n")
-        print(f"%%%% OPTIMAL {args.use_split}")
+        print(f"%%%% OPTIMAL {args.start_date}-{args.end_date}")
         print(global_stats.to_latex(float_format=lambda x: f"{x:0.2f}"), "\n\n")
         global_stats.to_latex(
-            f"{OUT_DIR}/latex_table.Optimal.{args.use_split}.latex",
+            f"{OUT_DIR}/latex_table.Optimal.{args.start_date}-{args.end_date}.latex",
             float_format=lambda x: f"{x:0.2f}",
         )
 
     #### MODEL-BASED BACKTESTING
 
-    ## Long-Only Strategy
-    long_only_backtest, long_only_stats = backtest_model(
-        SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=True,
-        go_short=False,
-        close_on_signal=args.close_on_signal,
-        position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
-        volatility_std_mult=volatility_std_mult,
-        trailing_mul=None,
-        prediction_threshold=args.prediction_threshold,
-    )
-    if args.verbose_stats:
-        print("Long only results:\n\n", long_only_stats)
-    ## Short-Only Strategy
-    short_only_backtest, short_only_stats = backtest_model(
-        SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=False,
-        go_short=True,
-        close_on_signal=args.close_on_signal,
-        position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
-        volatility_std_mult=volatility_std_mult,
-        trailing_mul=None,
-        prediction_threshold=args.prediction_threshold,
-    )
-    if args.verbose_stats:
-        print("Short only results:\n\n", short_only_stats)
-    ## Long-Short Strategy
     up_down_backtest, up_down_stats = backtest_model(
         SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.use_split}",
-        go_long=True,
-        go_short=True,
+        name=f"{RUN_ID}.{args.start_date}-{args.end_date}",
+        go_long=args.go_long,
+        go_short=args.go_short,
         close_on_signal=args.close_on_signal,
         position_size_pct=position_size,
         price_delta_pct=price_delta_pct,
         volatility_std_mult=volatility_std_mult,
         trailing_mul=None,
         prediction_threshold=args.prediction_threshold,
+        max_entries=args.max_entries,
     )
     if args.verbose_stats:
         print("Long+Short results\n\n", up_down_stats)
 
     ##### PLOT ALL PREVIOUS RESULTS
-    long_only_backtest.plot(
-        filename=f"{OUT_DIR}/{str(long_only_stats._strategy)}.html",
-        results=long_only_stats,
-        plot_return=True,
-        plot_equity=False,
-        resample="1d",
-        open_browser=args.show_plots,
-    )
-    short_only_backtest.plot(
-        filename=f"{OUT_DIR}/{str(short_only_stats._strategy)}.html",
-        results=short_only_stats,
-        plot_return=True,
-        plot_equity=False,
-        resample="1d",
-        open_browser=args.show_plots,
-    )
     up_down_backtest.plot(
         filename=f"{OUT_DIR}/{str(up_down_stats._strategy)}.html",
         results=up_down_stats,
         plot_return=True,
         plot_equity=False,
-        resample="1d",
+        resample=args.resample,
         open_browser=args.show_plots,
     )
 
     import pandas as pd
 
     #### Aggregate all relevant stats in a single dataframe
-    long_s = pd.Series(long_only_stats).loc[BACKTEST_METRICS]
-    short_s = pd.Series(short_only_stats).loc[BACKTEST_METRICS]
     updown_s = pd.Series(up_down_stats).loc[BACKTEST_METRICS]
     global_stats = pd.DataFrame(
         {
-            "Long Only": long_s,
-            "Short Only": short_s,
+            # "Long Only": long_s,
+            # "Short Only": short_s,
             "Up/Down": updown_s,
         }
     )
     #### Export it to CSV and print latex table
-    global_stats.to_csv(f"{OUT_DIR}/backtest_metrics.{RUN_ID}.{args.use_split}.csv")
+    global_stats.to_csv(
+        f"{OUT_DIR}/backtest_metrics.{RUN_ID}.{args.start_date}-{args.end_date}.csv"
+    )
     print("LATEX TABLE:\n")
-    print(f"%%%% {RUN_ID} {args.use_split}")
+    print(f"%%%% {RUN_ID} {args.start_date}-{args.end_date}")
     print(global_stats.to_latex(float_format=lambda x: f"{x:0.2f}"), "\n\n")
     global_stats.to_latex(
-        f"{OUT_DIR}/latex_table.{RUN_ID}.{args.use_split}.latex",
+        f"{OUT_DIR}/latex_table.{RUN_ID}.{args.start_date}-{args.end_date}.latex",
         float_format=lambda x: f"{x:0.2f}",
     )
     # Visualize and compare equity curves
-    long_only_equity = long_only_stats._equity_curve.Equity
-    short_only_equity = short_only_stats._equity_curve.Equity
+    # long_only_equity = long_only_stats._equity_curve.Equity
+    # short_only_equity = short_only_stats._equity_curve.Equity
     up_down_equity = up_down_stats._equity_curve.Equity
     data = pd.DataFrame(
         {
-            "btc": full_dataframe.Close.resample("1d").mean(),
-            "long": long_only_equity.resample("1d").mean(),
-            "short": short_only_equity.resample("1d").mean(),
-            "longshort": up_down_equity.resample("1d").mean(),
+            "btc": dataframe.Close.resample(args.resample).mean(),
+            # "long": long_only_equity.resample(args.resample).mean(),
+            # "short": short_only_equity.resample(args.resample).mean(),
+            "longshort": up_down_equity.resample(args.resample).mean(),
         }
     ).rebase()
 
-    ax = data.plot(figsize=(10, 5))
+    ax = data.plot(figsize=(10, 7))
     if args.show_plots:
         ax.figure.show()
-    ax.figure.savefig(f"{OUT_DIR}/equities {RUN_ID}.{args.use_split}.png")
+    ax.figure.savefig(
+        f"{OUT_DIR}/equities {RUN_ID}.{args.start_date}-{args.end_date}.png"
+    )

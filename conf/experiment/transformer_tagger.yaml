@@ -1,0 +1,17 @@
+# @package _global_
+# override entire defaults using absolute paths (starting from conf root)
+defaults:
+  - override /model: transformer_tcn.yaml
+
+
+# you can override any config part by
+# specifying its absolute path in yaml
+# for example:
+model:
+  classification_loss:
+    decay: 0.9
+    minimum_weight: 0.2
+
+dataset_conf:
+  channels_last: True
+  return_dicts: True
