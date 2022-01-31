@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 import ccxt
 from getpass import getpass
@@ -9,8 +9,11 @@ import hydra
 from datetime import datetime
 from pprint import pprint
 import time
+import logging
 
-info = hydra.utils.logging.info
+info = logging.info
+warning = logging.warning
+error = logging.error
 
 from src.dataset_readers import goodfeatures_reader
 from src.evaluation.common import get_cfg_model, PROJECT, RUN_ID, ENTITY
@@ -34,7 +37,8 @@ CLOSE_ON_SIGNAL = True
 class LoopState:
     trade_start = None
     side = None
-    dataset_reader: Callable
+    dataset_reader: Callable = field(repr=False)
+    symbol: str
 
     def trade_started(self, side):
         assert side in ("long", "short")
@@ -121,30 +125,16 @@ def predict_on_df(model, features_dataframe, cfg, past_context=64):
     return probabs
 
 
-def loop(exchange, loop_state: LoopState, symbol):
+def loop(exchange, loop_state: LoopState):
+    symbol = loop_state.symbol
     info("fetching new OHLCV data")
     ohlcv = process_ccxt_ohlcv(exchange.fetchOHLCV(symbol, "5m"))
     info("done fetching new OHLCV data")
-    ohlcv.to_csv(".tmpcsv")
+    ohlcv.to_csv(f".tmp.{symbol}.csv")
 
-    # incols = cfg.dataset_conf.input_columns
-
-    # info("building feature dataframe")
-    # nn_in_df = goodfeatures_reader(
-    #     trend_period=20, alpha=0.015, zscore_periods=[10, 30, 50, 100, 200]
-    # )(".tmpcsv")[incols].iloc[-64:]
-
-    # nn_in = (
-    #     from_pandas(nn_in_df).unsqueeze(0).transpose(-1, -2).float().to(model.device)
-    # )
-    # info("computing model output")
-    # model_out = model(nn_in)
-
-    # probabs = torch.softmax(model_out["classification_logits"], -1)[0, -1]
-    # info(f"predicted probabilities: {probabs.cpu()}")
-    features_dataframe = loop_state.dataset_reader(".tmpcsv")
+    features_dataframe = loop_state.dataset_reader(f".tmp.{symbol}.csv")
     probabs = predict_on_df(model, features_dataframe, cfg)
-    with open("preds.txt", "a") as f:
+    with open(f"preds.{symbol}.txt", "a") as f:
         f.write(
             f'{datetime.utcnow()};{";".join(map(str,probabs.squeeze().tolist()))}\n'
         )
@@ -160,25 +150,30 @@ def loop(exchange, loop_state: LoopState, symbol):
     positions_by_symbol = exchange.index_by(positions, "symbol")
     position = exchange.safe_value(positions_by_symbol, symbol)
 
-    if position is None:
+    # if position is None:
+    #     info(f"No {symbol} open position")
+    # elif position["timestamp"] is None:
+    #     info("position is not none but position['timestamp'] is.")
+
+    position_size = 0 if position is None else float(position["info"]["size"])
+    if position_size == 0:
         info(f"No {symbol} open position")
-    elif position["timestamp"] is None:
-        info("position is not none but position['timestamp'] is.")
-        position = None
-        info("position was set to none")
+    else:
+        info(
+            f"{symbol} position open with size {position_size}, recentPnl = {100*float(position['info']['recentPnl'])}%"
+        )
 
-    position_size = 0 if position is None else position["info"]["size"]
-
-    is_long = position is not None and position["side"] == "long" and position_size != 0
-    is_short = (
-        position is not None and position["side"] != "long" and position_size != 0
-    )
+    is_long = position_size != 0 and position["side"] == "long"
+    is_short = position_size != 0 and position["side"] != "long"
     is_flat = (not is_short) and (not is_long)
 
-    time_to_close = position_size > 0 and is_time_to_close(
-        loop_state.trade_start,
-        max_candles=cfg.dataset_conf.dataset_reader.trend_period,
-        timeframe=cfg.dataset_conf.dataset_reader.resample[:2],
+    time_to_close = position_size > 0 and (
+        is_time_to_close(
+            loop_state.trade_start,
+            max_candles=int(cfg.dataset_conf.dataset_reader.trend_period),
+            timeframe=cfg.dataset_conf.dataset_reader.resample[:2],
+        )
+        or (float(position["info"]["recentPnl"]) > 0.015)
     )
 
     last_closing_price = ohlcv.Close[-1]
@@ -188,6 +183,9 @@ def loop(exchange, loop_state: LoopState, symbol):
         close_position(exchange, symbol=symbol, position=position)
         info("closed")
         loop_state.trade_ended()
+        return loop_state
+
+    if datetime.now().minute % 5 != 0:
         return loop_state
 
     if next_prediction == SIGNALS["buy"]:
@@ -220,8 +218,8 @@ def loop(exchange, loop_state: LoopState, symbol):
     return loop_state
 
 
-def synchronize_clocks():
-    minutesToSleep = 4 - datetime.now().minute % 5
+def synchronize_clocks(minutes):
+    minutesToSleep = (minutes - 1) - datetime.now().minute % (minutes)
     secondsToSleep = 60 * minutesToSleep
     secondsToSleep += 60 - datetime.now().second % 60
     secondsToSleep += 2
@@ -252,22 +250,34 @@ def get_exchange(exchange_name):
 
 
 if __name__ == "__main__":
+    SYMBOLS = ["BTC-PERP"]
     RUN_ID = "2k2hrsos"
     EXCHANGE = "ftx"
     load_envs(".secrets")
+
+    exchange = get_exchange(EXCHANGE)
 
     ##### LOAD HYDRA CFG, MODEL CHECKPOINT FROM WANDB RUN
     run_dir: Path = get_run_dir(project=PROJECT, entity=ENTITY, run_id=RUN_ID)
     checkpoint_paths: list[Path] = list(run_dir.rglob("checkpoints/*"))
     cfg, model = get_cfg_model(checkpoint_path=checkpoint_paths[0], run_dir=run_dir)
+    model.eval()
     dataset_reader = hydra.utils.instantiate(cfg.dataset_conf.dataset_reader)
 
-    exchange = get_exchange(EXCHANGE)
-
-    loop_state = LoopState(dataset_reader=dataset_reader)
+    loop_states = {
+        symbol: LoopState(dataset_reader=dataset_reader, symbol=symbol)
+        for symbol in SYMBOLS
+    }
 
     while True:
-        synchronize_clocks()
-        loop_state = loop(exchange, loop_state=loop_state, symbol="BTC-PERP")
-        info("loop exited.")
-        info(f"loop state: {loop_state}")
+        synchronize_clocks(minutes=1)
+        for symbol, loop_state in loop_states.items():
+            info(f"starting to do {symbol}")
+            info(f"with loop state: {loop_states[symbol]}")
+            try:
+                loop_states[symbol] = loop(exchange, loop_state=loop_state)
+            except Exception as e:
+                error(e, exc_info=True)
+
+            info("loop exited.")
+            info(f"new loop state: {loop_states[symbol]}")
