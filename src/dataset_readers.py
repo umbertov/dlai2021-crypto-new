@@ -598,6 +598,24 @@ def target_categorical_adaptive_trend(
     return df
 
 
+def target_soft_categorical_trend(df, trend_period=10, alpha=0.01):
+    ohlc4 = ohlc4_mean(df)
+    mean_before = ohlc4.rolling(trend_period).mean()
+    mean_after = ohlc4.shift(-trend_period)
+
+    ratio = mean_after / mean_before - 1
+    normed_ratio = ratio / alpha
+    buy_probabs = (normed_ratio).clip(0, 1)
+    sell_probabs = -(normed_ratio).clip(0, -1)
+    neutral_probabs = 1 - sell_probabs - buy_probabs
+
+    df["pBuy"] = buy_probabs
+    df["pSell"] = sell_probabs
+    df["pNeutral"] = neutral_probabs
+
+    return df
+
+
 def feature_set_2_trendprediction_reader(
     resample="5min",
     trend_period=10,
@@ -842,18 +860,21 @@ def goodtargets(
         lambda df: target_categorical_trend(
             df, trend_period=trend_period, target_col=target_col, alpha=alpha
         ),
+        lambda df: target_soft_categorical_trend(
+            df, trend_period=trend_period, alpha=alpha
+        ),
         lambda df: target_categorical_adaptive_trend(
             df,
             trend_period=trend_period,
             target_col="TargetAdaCategorical",
             std_mult=std_mult,
         ),
-        lambda df: target_volatility_classification(
-            df,
-            trend_period=trend_period,
-            target_col="TargetCategoricalVolatility",
-            std_mult=std_mult,
-        ),
+        # lambda df: target_volatility_classification(
+        #    df,
+        #    trend_period=trend_period,
+        #    target_col="TargetCategoricalVolatility",
+        #    std_mult=std_mult,
+        # ),
         Strip(),
         lambda df: df.ffill(),
     )

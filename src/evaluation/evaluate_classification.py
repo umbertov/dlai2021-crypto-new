@@ -47,7 +47,7 @@ def compute_metrics_on_dataset(dataset, model):
 
     metrics = compute_classification_metrics(
         all_predictions.view(-1),
-        all_targets.view(-1),
+        all_targets.argmax(-1).view(-1),
         num_classes=cfg.dataset_conf.n_classes,
     )
     return metrics
@@ -62,7 +62,9 @@ def confmat_on_dataset(dataset, model):
 
     confusion_matrix = (
         compute_confusion_matrix(
-            all_predictions, all_targets, num_classes=cfg.dataset_conf.n_classes
+            all_predictions,
+            all_targets.argmax(-1),
+            num_classes=cfg.dataset_conf.n_classes,
         )
         .cpu()
         .numpy()

@@ -16,8 +16,9 @@ class DynamicWeightCrossEntropy(nn.Module):
     def forward(self, logits, targets):
         value_counts = torch.ones_like(self.weight)
         # is there a better way to do this? it doesn't really hurt performance though
+        target_labels = targets.argmax(-1) if targets.dtype != torch.long else targets
         for i in range(self.n_classes):
-            value_counts[i] += (targets == i).sum()
+            value_counts[i] += (target_labels == i).sum()
         # obtain the inverse value counts
         new_weight = (value_counts.sum()) / value_counts
         # normalize so it sums to 1

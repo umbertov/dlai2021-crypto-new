@@ -81,7 +81,8 @@ def parse_args():
     parser.add_argument("--optimal", default=False, action="store_true")
     parser.add_argument("--buy-and-hold", default=False, action="store_true")
     parser.add_argument("--prediction-threshold", default=None, type=none_or_float)
-    parser.add_argument("--price-delta-pct", default=None, type=none_or_float)
+    parser.add_argument("--take-profit-pct", default=None, type=none_or_float)
+    parser.add_argument("--stop-loss-pct", default=None, type=none_or_float)
     parser.add_argument("--max-entries", default=1, type=int)
 
     args = parser.parse_args()
@@ -116,7 +117,8 @@ if __name__ == "__main__":
 
     # Backtest parameters
     position_size = args.position_size_pct
-    price_delta_pct = args.price_delta_pct
+    take_profit_pct = args.take_profit_pct
+    stop_loss_pct = args.stop_loss_pct
     # turn backtest start/length from percentages into integer number of steps
     backtest_start = int(len(dataframe) * args.backtest_start_pct)
     backtest_length = int(len(dataframe) * args.backtest_length_pct)
@@ -131,7 +133,7 @@ if __name__ == "__main__":
         backtest = Backtest(
             dataframe.iloc[backtest_start : backtest_start + backtest_length],
             strategy,
-            cash=100_000 * args.max_entries,
+            cash=1_000_000 * args.max_entries,
             commission=0.002,
             # exclusive_orders=True,
         )
@@ -139,9 +141,11 @@ if __name__ == "__main__":
         return backtest, stats
 
     volatility_std_mult = None  # cfg.dataset_conf.dataset_reader.get("std_mult", None)
-    if price_delta_pct is None:
-        price_delta_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
-    print(f"{price_delta_pct=}")
+    if take_profit_pct is None:
+        take_profit_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
+        stop_loss_pct = cfg.dataset_conf.dataset_reader.get("price_delta_pct", None)
+    print(f"{take_profit_pct=}")
+    print(f"{stop_loss_pct=}")
     print(f"{volatility_std_mult=}")
 
     ##### BUY AND HOLD BACKTESTING
@@ -189,7 +193,8 @@ if __name__ == "__main__":
             go_long=True,
             close_on_signal=args.close_on_signal,
             position_size_pct=position_size,
-            price_delta_pct=price_delta_pct,
+            take_profit_pct=take_profit_pct,
+            stop_loss_pct=stop_loss_pct,
             volatility_std_mult=volatility_std_mult,
             max_entries=args.max_entries,
         )
@@ -203,7 +208,8 @@ if __name__ == "__main__":
             go_long=False,
             close_on_signal=args.close_on_signal,
             position_size_pct=position_size,
-            price_delta_pct=price_delta_pct,
+            take_profit_pct=take_profit_pct,
+            stop_loss_pct=stop_loss_pct,
             volatility_std_mult=volatility_std_mult,
             max_entries=args.max_entries,
         )
@@ -217,7 +223,8 @@ if __name__ == "__main__":
             go_long=True,
             close_on_signal=args.close_on_signal,
             position_size_pct=position_size,
-            price_delta_pct=price_delta_pct,
+            take_profit_pct=take_profit_pct,
+            stop_loss_pct=stop_loss_pct,
             volatility_std_mult=volatility_std_mult,
             max_entries=args.max_entries,
         )
@@ -249,12 +256,13 @@ if __name__ == "__main__":
 
     up_down_backtest, up_down_stats = backtest_model(
         SequenceTaggerStrategy,
-        name=f"{RUN_ID}.{args.start_date}-{args.end_date}",
+        name=f"{RUN_ID}",
         go_long=args.go_long,
         go_short=args.go_short,
         close_on_signal=args.close_on_signal,
         position_size_pct=position_size,
-        price_delta_pct=price_delta_pct,
+        take_profit_pct=take_profit_pct,
+        stop_loss_pct=stop_loss_pct,
         volatility_std_mult=volatility_std_mult,
         trailing_mul=None,
         prediction_threshold=args.prediction_threshold,

@@ -91,12 +91,9 @@ class BacktestCallback(pl.Callback):
             strategy=SequenceTaggerStrategy,
             model=pl_module,
             cfg=self.cfg,
-            go_short=False,
+            go_short=True,
             go_long=True,
-            position_size_pct=1,
-            price_delta_pct=self.price_delta_pct,
-            volatility_std_mult=self.volatility_std_mult,
-            trailing_mul=None,
+            position_size_pct=0.5,
             verbose=False,
         )
         stats_df = pd.DataFrame(stats).loc[BACKTEST_METRICS]

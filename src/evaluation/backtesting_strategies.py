@@ -18,7 +18,8 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
     name = "no_name"
     go_long: bool = True
     go_short: bool = True
-    price_delta_pct: Optional[float] = None
+    take_profit_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
     volatility_std_mult: Optional[float] = None
     position_size_pct: float = 0.999
     cfg: "omegaconf.DictConfig"
@@ -34,7 +35,7 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
 
         self.model_output = self.I(self.get_model_output)
         if self.volatility_std_mult is not None:
-            assert self.price_delta_pct is None
+            assert self.take_profit_pct is None
             self.volatility = self.I(self.get_volatility)
         if self.trailing_mul:
             self.set_trailing_sl(self.trailing_mul)
@@ -48,32 +49,6 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
     def get_model_output(self):
         raise NotImplementedError
 
-    def _long_sl_tp_prices(self, price):
-        sl, tp = None, None
-        if self.trailing_mul:
-            pass
-        elif self.price_delta_pct is not None:
-            tp = price * (1 + self.price_delta_pct)
-            sl = price * (1 - self.price_delta_pct)
-        elif self.volatility_std_mult is not None:
-            tp = price * (1 + self.volatility[-1] * self.volatility_std_mult)
-            sl = price * (1 - self.volatility[-1] * self.volatility_std_mult)
-        assert (sl or tp is None) or sl < price < tp
-        return sl, tp
-
-    def _short_sl_tp_prices(self, price):
-        sl, tp = None, None
-        if self.trailing_mul:
-            pass
-        elif self.price_delta_pct is not None:
-            sl = price * (1 + self.price_delta_pct)
-            tp = price * (1 - self.price_delta_pct)
-        elif self.volatility_std_mult is not None:
-            sl = price * (1 + self.volatility[-1] * self.volatility_std_mult)
-            tp = price * (1 - self.volatility[-1] * self.volatility_std_mult)
-        assert (sl or tp is None) or sl > price > tp
-        return sl, tp
-
     def next(self):
         price = self.data.Close[-1]
         prediction = self.model_output[-1]
@@ -81,43 +56,32 @@ class ModelStrategyBase(TrailingStrategy, metaclass=ABCMeta):
         # first, cancel any non-executed order
         for order in self.orders:
             order.cancel()
-            self.entry_count = max(0, self.entry_count - 1)
-        # if present, compute length of current trade (in bars)
-        if len(self.trades) > 0:
-            last_trade = self.trades[-1]
-            is_open = last_trade.exit_bar is None
-            if is_open:
-                position_duration = len(self.data) - last_trade.entry_bar
-            else:
-                self.entry_count = 0
 
+        # then, optionally take profit from all good positions
+        if self.take_profit_pct is not None:
+            for trade in self.trades:
+                if trade.pl_pct > self.take_profit_pct:
+                    trade.close()
+                elif trade.pl_pct < -self.stop_loss_pct:
+                    trade.close()
+
+        if self.position:
+            position_duration = len(self.data) - self.trades[-1].entry_bar
+
+        # if present, compute length of current trade (in bars)
         if position_duration > self.cfg.dataset_conf.dataset_reader.trend_period:
             self.position.close()
-            self.entry_count = 0
-            return
 
         if prediction == 1:
             if self.close_on_signal and self.position.is_short:
                 self.position.close()
-                self.entry_count = 0
-            if self.go_long and self.entry_count < self.max_entries:
-                if self.trailing_mul:
-                    self.buy(size=self.position_size_pct)
-                else:
-                    sl, tp = self._long_sl_tp_prices(price)
-                    self.buy(size=self.position_size_pct, tp=tp, sl=sl)
-                self.entry_count += 1
+            elif self.go_long and len(self.trades) < self.max_entries:
+                self.buy(size=self.position_size_pct)
         elif prediction == -1:
             if self.close_on_signal and self.position.is_long:
                 self.position.close()
-                self.entry_count = 0
-            if self.go_short and self.entry_count < self.max_entries:
-                if self.trailing_mul:
-                    self.sell(size=self.position_size_pct)
-                else:
-                    sl, tp = self._short_sl_tp_prices(price)
-                    self.sell(size=self.position_size_pct, tp=tp, sl=sl)
-                self.entry_count += 1
+            elif self.go_short and len(self.trades) < self.max_entries:
+                self.sell(size=self.position_size_pct)
 
 
 class Monke(Strategy):
@@ -136,7 +100,7 @@ class Monke(Strategy):
 class SequenceTaggerStrategy(ModelStrategyBase):
     cfg: "omegaconf.DictConfig" = None
     class2idx = {0: "sell", 1: "hold", 2: "buy"}
-    prediction_threshold = 0.7
+    prediction_threshold = None
     verbose = True
 
     @torch.no_grad()

@@ -96,6 +96,9 @@ class DataframeDataset(TensorDataset):
         targets = self._get_targets()
 
         super().__init__(input_tensors, *targets)
+        # print(
+        #    f"dataset {self.name} with {len(self.dataframe)} rows in dataframe and {self.tensors[0].shape=}"
+        # )
 
     def __getitem__(self, idx, return_df=False):
         out = super().__getitem__(idx)
@@ -160,15 +163,20 @@ class DataframeDataset(TensorDataset):
             self.tensor_names.append("continuous_targets")
 
         if self.categorical_targets is not None:
-            targets.append(
-                from_pandas(
+            if len(self.categorical_targets) == 1:
+                target_tensors = from_pandas(
                     self.dataframe[self.categorical_targets].astype(int)
                 ).long()[self.window_indices]
-            )
+            else:
+                # one-hot encoding or proobabilities
+                target_tensors = from_pandas(
+                    self.dataframe[self.categorical_targets]
+                ).float()[self.window_indices]
+            targets.append(target_tensors)
             self.tensor_names.append("categorical_targets")
 
-        if not self.channels_last:
-            targets = [t.transpose(-1, -2) for t in targets]
+        # if not self.channels_last:
+        #     targets = [t.transpose(-1, -2) for t in targets]
         assert all(data.isfinite().all() for data in targets)
         return targets
 

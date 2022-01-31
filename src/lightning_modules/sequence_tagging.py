@@ -74,6 +74,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
     def _classification_forward(
         self, classification_logits=None, categorical_targets=None, mode="val", **kwargs
     ):
+        batch, seq, chan = classification_logits.shape
         if classification_logits is None or categorical_targets is None:
             return dict(classification_logits=classification_logits)
         original_classification_logits = classification_logits
@@ -82,7 +83,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
         classification_loss = self.classification_loss_fn(
             classification_logits,
-            categorical_targets.view(-1),
+            categorical_targets.view(batch * seq, -1),
         )
         predictions = self._predict_from_logits(
             classification_logits,
@@ -94,7 +95,8 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             "categorical_targets": categorical_targets,
             **self._classification_metrics(
                 predictions.view(-1),
-                categorical_targets.view(-1),
+                # categorical_targets.view(-1),
+                categorical_targets.view(batch * seq, -1).argmax(-1),
                 mode=mode,
             ),
             "classification_logits": original_classification_logits,
@@ -152,6 +154,8 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
             [s["categorical_targets"].detach() for s in step_outputs if s is not None],
             dim=0,
         )
+        all_targets = rearrange(all_targets, "b s c -> (b s) c")
+        all_targets = all_targets.argmax(-1)
         confusion_matrix = (
             compute_confusion_matrix(
                 all_predictions, all_targets, num_classes=num_classes
