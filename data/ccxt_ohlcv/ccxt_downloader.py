@@ -144,6 +144,7 @@ if __name__ == "__main__":
     parser.add_argument("--symbol", default="BTC-PERP")
     parser.add_argument("--destdir", default=".", type=str)
     parser.add_argument("--exchange", default="ftx", type=str)
+    parser.add_argument("--timeframe", default="5m", type=str)
     parser.add_argument(
         "--start-date",
         type=lambda s: datetime.datetime.strptime(s, "%Y-%m-%d"),
@@ -157,7 +158,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     START_DATE, END_DATE = args.start_date, args.end_date
-
+    TIMEFRAME = args.timeframe
     SYMBOL = args.symbol
     DESTDIR = Path(args.destdir)
     assert DESTDIR.is_dir()

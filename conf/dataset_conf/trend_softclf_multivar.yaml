@@ -1,0 +1,44 @@
+defaults:
+  - data_path: high_volume.yaml
+
+dataset_reader:
+  _target_: src.dataset_readers.goodfeatures_reader
+  resample: 5min
+  trend_period: 20
+  alpha: 0.015
+  zscore_periods: [10,30,50,100,200]
+
+input_columns:
+  - Zscore10(Close)
+  - Zscore30(Close)
+  - Zscore50(Close)
+  - Zscore100(Close)
+  - Zscore200(Close)
+  - Zscore10(Volume)
+  - Zscore30(Volume)
+  - Zscore50(Log(PctChange(Close)))
+  - Zscore200(Log(PctChange(Close)))
+
+continuous_targets: null
+categorical_targets:
+  - pSell
+  - pNeutral
+  - pBuy
+n_classes: 3
+train_period:
+  start: 2017-01-01
+  end: 2021-01-01
+val_period:
+  start: ${dataset_conf.train_period.end}
+  end: 2021-06-01
+test_period:
+  start: ${dataset_conf.val_period.end}
+  end: 2022-01-31
+window_skip: 128
+window_length: 128
+minmax_scale_windows: False
+zscore_scale_windows: False
+future_window_length: 0
+return_dicts: True
+clamp_values: null
+channels_last: False

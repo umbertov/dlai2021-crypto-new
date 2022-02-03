@@ -18,11 +18,20 @@ from src.common.plot_utils import confusion_matrix_fig
 
 from src.common.utils import compute_confusion_matrix, compute_classification_metrics
 
-
+"""
 def threshold_predict(probabs, thresh):
     out = torch.ones(*probabs.shape[:-1], device=probabs.device, dtype=torch.long)
     out[probabs[..., 0] > thresh] = 0
     out[probabs[..., 2] > thresh] = 2
+    return out
+"""
+
+
+def threshold_predict(probabs, thresh):
+    out = probabs.argmax(-1)
+    assert out.shape == probabs.shape[:-1]
+    out[(out == 0) & (probabs[..., 0] < thresh)] = 1
+    out[(out == 2) & (probabs[..., 2] < thresh)] = 1
     return out
 
 
@@ -83,7 +92,7 @@ class TimeSeriesClassifier(BaseTimeSeriesModule):
         classification_logits = rearrange(classification_logits, "b l c -> (b l) c")
         classification_loss = self.classification_loss_fn(
             classification_logits,
-            categorical_targets.view(batch * seq, -1),
+            categorical_targets.view(batch * seq, -1).squeeze(),
         )
         predictions = self._predict_from_logits(
             classification_logits,

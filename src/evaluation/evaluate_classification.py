@@ -44,10 +44,12 @@ def compute_metrics_on_dataset(dataset, model):
     megabatch = move_dict(megabatch, "cuda")
     all_predictions = model.predict(**megabatch).squeeze()
     all_targets = megabatch["categorical_targets"].squeeze()
+    if all_targets.dim() == 3:
+        all_targets = all_targets.argmax(-1)
 
     metrics = compute_classification_metrics(
         all_predictions.view(-1),
-        all_targets.argmax(-1).view(-1),
+        all_targets.view(-1),
         num_classes=cfg.dataset_conf.n_classes,
     )
     return metrics
@@ -59,11 +61,13 @@ def confmat_on_dataset(dataset, model):
     megabatch = move_dict(megabatch, "cuda")
     all_predictions = model.predict(**megabatch).squeeze()
     all_targets = megabatch["categorical_targets"].squeeze()
+    if all_targets.dim() == 3:
+        all_targets = all_targets.argmax(-1)
 
     confusion_matrix = (
         compute_confusion_matrix(
             all_predictions,
-            all_targets.argmax(-1),
+            all_targets.view(-1),
             num_classes=cfg.dataset_conf.n_classes,
         )
         .cpu()
@@ -196,8 +200,9 @@ if __name__ == "__main__":
         print("\n")
 
     confmat, plotly_fig = confmat_on_dataset(dataset, model)
+    print(confmat)
     confmat_path = (
         f"evaluation/classification_metrics/confmat.{RUN_ID}.{args.use_split}.png"
     )
     print("saving to", confmat_path)
-    plotly_fig.write_image(confmat_path)
+    # plotly_fig.write_image(confmat_path)
