@@ -115,6 +115,49 @@ def go_short(exchange, symbol, amount, price=None):
     return order
 
 
+def set_take_profit_stop_loss(exchange, symbol, amount, entry_price, mode):
+    assert mode in ("long", "short")
+    side = "sell" if mode == "long" else "buy"
+    tp_price_pct = (1 + 0.015) if mode == "long" else (1 - 0.015)
+    sl_price_pct = (1 - 0.015) if mode == "long" else (1 + 0.015)
+    tp_trigger_price = tp_price_pct * entry_price
+    sl_trigger_price = sl_price_pct * entry_price
+    info(
+        f"setting take profit to {tp_trigger_price:.2f}$ and stop loss to {sl_trigger_price:.2f} for {mode.upper()} position on {symbol}"
+    )
+    try:
+        info("sending take profit")
+        take_profit_order = exchange.private_post_conditional_orders(
+            {
+                "market": symbol,
+                "side": side,
+                "triggerPrice": tp_trigger_price,
+                "type": "takeProfit",
+                "size": amount,
+                "reduceOnly": True,
+            }
+        )
+    except Exception as e:
+        error(e, exc_info=True)
+        take_profit_order = None
+    try:
+        info("sending stop loss")
+        stop_loss_order = exchange.private_post_conditional_orders(
+            {
+                "market": symbol,
+                "side": side,
+                "triggerPrice": sl_trigger_price,
+                "size": amount,
+                "type": "stop",
+                "reduceOnly": True,
+            }
+        )
+    except Exception as e:
+        error(e, exc_info=True)
+        stop_loss_order = None
+    return take_profit_order, stop_loss_order
+
+
 def predict_on_df(model, features_dataframe, cfg, past_context=64):
     assert not past_context > len(features_dataframe)
     feature_columns = cfg.dataset_conf.input_columns
@@ -141,7 +184,7 @@ def predict_on_df(model, features_dataframe, cfg, past_context=64):
     next_prediction = probabs.argmax()
     if loop_state.prediction_threshold is not None:
         # if predicted non-neutral, but probability is not above threshold, reset to neutral
-        if next_prediction != 1 and probabs.max() < loop_state.prediction_threshold:
+        if probabs.max() < loop_state.prediction_threshold:
             next_prediction = 1
             # next_prediction = (
             #     0  # sell
@@ -160,6 +203,13 @@ def get_symbol_position(exchange, symbol):
     return position
 
 
+def get_current_price(exchange, symbol):
+    ticker = exchange.fetchTicker(symbol)
+    bid, ask = float(ticker["bid"]), float(ticker["ask"])
+    midprice = (bid + ask) / 2
+    return midprice
+
+
 def symbol_loop(exchange, loop_state: LoopState):
     symbol = loop_state.symbol
     info("fetching new OHLCV data")
@@ -171,19 +221,23 @@ def symbol_loop(exchange, loop_state: LoopState):
     next_prediction, probabs = predict_on_df(model, features_dataframe, cfg)
     info(f"predicted class index: {next_prediction}")
 
-    info("canceling all pending orders")
-    exchange.cancelAllOrders()
+    # info("canceling all pending orders")
+    # exchange.cancelAllOrders()
 
     info("fetching positions")
     position = get_symbol_position(exchange, symbol)
+    current_price = get_current_price(exchange, symbol)
+    info(f"current {symbol} price is {current_price:.2f}")
 
     position_size = 0 if position is None else float(position["info"]["size"])
     if position_size == 0:
         info(f"No {symbol} open position")
     else:
+        position_entry_price = float(position["info"]["recentBreakEvenPrice"])
+        calc_pnl = current_price / position_entry_price - 1
         info(
-            f"{symbol} position open with size {position_size}, "
-            + f"recentPnl = {100*float(position['info']['recentPnl']):.2f}%"
+            f"{symbol} position open with size {position_size}, @{position_entry_price:.2f} "
+            + f"recentPnl = {100*float(position['info']['recentPnl']):.2f}%, calculated pnl = {100*calc_pnl:.2f}%"
         )
 
     is_long = position_size != 0 and position["side"] == "long"
@@ -200,12 +254,12 @@ def symbol_loop(exchange, loop_state: LoopState):
         # or (float(position["info"]["recentPnl"]) < -0.015)
     )
 
-    last_closing_price = ohlcv.Close[-1]
-
     if time_to_close:
         info("time to close")
         close_position(exchange, symbol=symbol, position=position)
         info("closed")
+        info("canceling all orders")
+        exchange.cancelAllOrders()
         loop_state.trade_ended()
         return loop_state
 
@@ -218,40 +272,48 @@ def symbol_loop(exchange, loop_state: LoopState):
             usd_balance = exchange.fetchBalance()["USD"]["free"]
             # market order
             price = None  # last_closing_price * 0.9998
-            amount = max(loop_state.min_amount, (usd_balance / 2) / last_closing_price)
+            amount = max(loop_state.min_amount, (usd_balance / 2) / current_price)
             order = go_long(exchange, symbol, amount=amount, price=price)
             loop_state.trade_started("long")
+            set_take_profit_stop_loss(exchange, symbol, amount, current_price, "long")
         elif is_short and CLOSE_ON_SIGNAL:
             info("buy signal and short position. closing long")
             close_position(exchange, symbol=symbol, position=position)
             loop_state.trade_ended()
+            info("canceling all orders")
+            exchange.cancelAllOrders()
             if INVERT_ON_SIGNAL:
                 usd_balance = exchange.fetchBalance()["USD"]["free"]
-                amount = max(
-                    loop_state.min_amount, (usd_balance / 2) / last_closing_price
-                )
+                amount = max(loop_state.min_amount, (usd_balance / 2) / current_price)
                 order = go_long(exchange, symbol, amount=amount, price=None)
                 loop_state.trade_started("short")
+                set_take_profit_stop_loss(
+                    exchange, symbol, amount, current_price, "long"
+                )
     elif next_prediction == SIGNALS["sell"]:
         if is_flat:
             info("sell signal and flat position. entering short")
             usd_balance = exchange.fetchBalance()["USD"]["free"]
             # market order
             price = None  # last_closing_price * 1.0001
-            amount = max(loop_state.min_amount, (usd_balance / 2) / last_closing_price)
+            amount = max(loop_state.min_amount, (usd_balance / 2) / current_price)
             order = go_short(exchange, symbol, amount=amount, price=price)
             loop_state.trade_started("short")
+            set_take_profit_stop_loss(exchange, symbol, amount, current_price, "short")
         elif is_long and CLOSE_ON_SIGNAL:
             info("sell signal and long position. closing short")
             close_position(exchange, symbol=symbol, position=position)
+            info("canceling all orders")
+            exchange.cancelAllOrders()
             loop_state.trade_ended()
             if INVERT_ON_SIGNAL:
                 usd_balance = exchange.fetchBalance()["USD"]["free"]
-                amount = max(
-                    loop_state.min_amount, (usd_balance / 2) / last_closing_price
-                )
+                amount = max(loop_state.min_amount, (usd_balance / 2) / current_price)
                 order = go_short(exchange, symbol, amount=amount, price=None)
                 loop_state.trade_started("short")
+                set_take_profit_stop_loss(
+                    exchange, symbol, amount, current_price, "short"
+                )
 
     else:
         info("predicted neutral class")
